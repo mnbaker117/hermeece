@@ -1,0 +1,291 @@
+"""
+Snatch budget watcher loop.
+
+Periodically:
+  1. Polls qBittorrent for the current state of every torrent in
+     the watch category
+  2. Calls `ledger.reconcile_with_qbit()` to update seedtimes and
+     release rows that have hit the threshold (or vanished from qBit)
+  3. As long as the ledger has freed-up budget, pops grabs from
+     `pending_queue` and submits them to qBit, recording each in
+     the ledger
+
+This is the function that turns the static "park grabs in a queue
+when budget is full" logic into a real flow that actually drains
+the queue when MAM seedtime catches up. Without it, queued grabs
+would sit forever — the dispatcher only ever ENQUEUES.
+
+The loop is designed for the same supervised-task wrapper as the
+IRC listener: it's an infinite `while not stop.is_set()` body that
+sleeps between iterations, can be cancelled cleanly, and never
+raises out of the body (everything is logged and the loop continues).
+
+The loop body is split into a separate `tick()` function so tests
+can drive one cycle at a time without dealing with timers.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+from dataclasses import dataclass
+from typing import Optional
+
+from app.clients.base import TorrentClient
+from app.mam.grab import GrabResult
+from app.mam.torrent_meta import BencodeError, info_hash
+from app.orchestrator.dispatch import DispatcherDeps
+from app.rate_limit import ledger as ledger_mod
+from app.rate_limit import queue as queue_mod
+from app.storage import grabs as grabs_storage
+
+_log = logging.getLogger("hermeece.orchestrator.budget_watcher")
+
+
+@dataclass(frozen=True)
+class TickResult:
+    """Outcome of one budget watcher cycle.
+
+    Used by both the dashboard mirror and the test suite. The
+    counters describe what happened in this iteration only — the
+    long-running loop accumulates them as it goes.
+    """
+
+    qbit_torrents_seen: int
+    seedtime_released: int
+    removed_released: int
+    queue_pops_attempted: int
+    queue_pops_submitted: int
+    queue_pops_failed: int
+    error: Optional[str] = None
+
+
+async def tick(deps: DispatcherDeps) -> TickResult:
+    """Run one full budget-watcher cycle.
+
+    Splits cleanly into three phases:
+      1. Snapshot qBit (`qbit.list_torrents`)
+      2. Reconcile the ledger (`ledger.reconcile_with_qbit`)
+      3. Drain the queue while budget has room
+
+    All errors are caught and stuffed into `TickResult.error` so the
+    outer supervised loop never raises out of `tick`.
+    """
+    db = await deps.db_factory()
+    try:
+        return await _tick_inner(deps, db)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        _log.exception("budget watcher tick failed")
+        return TickResult(
+            qbit_torrents_seen=0,
+            seedtime_released=0,
+            removed_released=0,
+            queue_pops_attempted=0,
+            queue_pops_submitted=0,
+            queue_pops_failed=0,
+            error=f"{type(e).__name__}: {e}",
+        )
+    finally:
+        await db.close()
+
+
+async def _tick_inner(deps: DispatcherDeps, db) -> TickResult:
+    # ── Phase 1: snapshot qBit ──────────────────────────────
+    qbit_torrents = await deps.qbit.list_torrents(category=deps.qbit_category)
+    qbit_seen = len(qbit_torrents)
+    snapshot = {t.hash: t.seeding_seconds for t in qbit_torrents if t.hash}
+
+    # ── Phase 2: reconcile the ledger ───────────────────────
+    summary = await ledger_mod.reconcile_with_qbit(
+        db, snapshot, seed_seconds_required=deps.seed_seconds_required
+    )
+
+    # ── Phase 3: drain the queue while budget has room ──────
+    pops_attempted = 0
+    pops_submitted = 0
+    pops_failed = 0
+
+    while True:
+        budget_used = await ledger_mod.count_active(db)
+        if budget_used >= deps.budget_cap:
+            break
+
+        next_grab = await queue_mod.pop_next(db)
+        if next_grab is None:
+            break
+
+        pops_attempted += 1
+        ok = await _resubmit_queued_grab(deps, db, next_grab.grab_id)
+        if ok:
+            pops_submitted += 1
+        else:
+            pops_failed += 1
+
+    return TickResult(
+        qbit_torrents_seen=qbit_seen,
+        seedtime_released=summary["released_seedtime"],
+        removed_released=summary["released_removed"],
+        queue_pops_attempted=pops_attempted,
+        queue_pops_submitted=pops_submitted,
+        queue_pops_failed=pops_failed,
+    )
+
+
+async def _resubmit_queued_grab(
+    deps: DispatcherDeps, db, grab_id: int
+) -> bool:
+    """Re-fetch a queued grab's .torrent file and submit to qBit.
+
+    Phase 1 design choice: queued grabs do NOT persist their
+    .torrent bytes to disk (see the dispatcher comment for the
+    rationale). The budget watcher re-fetches at pop time. The
+    cost is one extra MAM HTTP request per pop; the benefit is
+    that a Hermeece crash never leaves orphan .torrent files lying
+    around in the data dir.
+
+    Returns True on successful submission, False on any failure.
+    Failed grabs are marked with the appropriate `failed_*` state
+    so the cookie-rotation retry job can find them.
+    """
+    grab = await grabs_storage.get_grab(db, grab_id)
+    if grab is None:
+        _log.warning(
+            f"budget watcher: queued grab_id={grab_id} not found in grabs table"
+        )
+        return False
+
+    fetch_result: GrabResult = await deps.fetch_torrent(
+        grab.mam_torrent_id, deps.mam_token
+    )
+
+    if not fetch_result.success:
+        failed_state = _grab_failure_state(fetch_result)
+        await grabs_storage.set_state(
+            db,
+            grab_id,
+            failed_state,
+            failed_reason=fetch_result.failure_detail,
+        )
+        _log.info(
+            f"budget watcher: queued grab_id={grab_id} fetch failed "
+            f"({fetch_result.failure_kind}: {fetch_result.failure_detail})"
+        )
+        return False
+
+    torrent_bytes = fetch_result.torrent_bytes or b""
+    try:
+        qbit_hash = info_hash(torrent_bytes)
+    except BencodeError as e:
+        await grabs_storage.set_state(
+            db,
+            grab_id,
+            grabs_storage.STATE_FAILED_QBIT_REJECTED,
+            failed_reason=f"unparseable torrent file: {e}",
+        )
+        return False
+
+    add_result = await deps.qbit.add_torrent(
+        torrent_bytes, category=deps.qbit_category
+    )
+
+    if not add_result.success:
+        failed_state = (
+            grabs_storage.STATE_FAILED_QBIT_REJECTED
+            if add_result.failure_kind == "rejected"
+            else grabs_storage.STATE_FAILED_UNKNOWN
+        )
+        await grabs_storage.set_state(
+            db,
+            grab_id,
+            failed_state,
+            failed_reason=add_result.failure_detail,
+            qbit_hash=qbit_hash,
+        )
+        _log.info(
+            f"budget watcher: queued grab_id={grab_id} qBit submit failed "
+            f"({add_result.failure_kind}: {add_result.failure_detail})"
+        )
+        return False
+
+    await grabs_storage.set_state(
+        db,
+        grab_id,
+        grabs_storage.STATE_SUBMITTED,
+        qbit_hash=qbit_hash,
+    )
+    await ledger_mod.record_grab(db, grab_id, qbit_hash)
+    _log.info(
+        f"budget watcher: queued grab_id={grab_id} submitted to qBit "
+        f"(hash={qbit_hash})"
+    )
+    return True
+
+
+def _grab_failure_state(result: GrabResult) -> str:
+    """Map a GrabResult.failure_kind to a `grabs.state` value.
+
+    Same logic as the dispatcher's helper. Duplicated rather than
+    imported because the dispatcher's version is private and
+    pulling it across module boundaries would couple the watcher
+    to dispatch internals more tightly than is healthy.
+    """
+    kind = result.failure_kind
+    if kind == "cookie_expired":
+        return grabs_storage.STATE_FAILED_COOKIE_EXPIRED
+    if kind == "torrent_not_found":
+        return grabs_storage.STATE_FAILED_TORRENT_GONE
+    return grabs_storage.STATE_FAILED_UNKNOWN
+
+
+# ─── The supervised loop ─────────────────────────────────────
+
+
+async def run_loop(
+    deps: DispatcherDeps,
+    *,
+    interval_seconds: float = 60.0,
+    stop_event: Optional[asyncio.Event] = None,
+) -> None:
+    """Long-running loop that calls `tick()` on a fixed interval.
+
+    Designed to be wrapped in `app.state.supervised_task()` from the
+    main lifespan. Cancellation propagates cleanly via the
+    `asyncio.CancelledError` re-raise inside `tick()`.
+
+    `stop_event` is an opt-in early-exit signal — useful for the
+    smoke test that wants to run exactly N ticks then bail. The
+    real lifespan doesn't pass one and lets `supervised_task` cancel
+    the surrounding asyncio task at shutdown instead.
+    """
+    _log.info(f"budget watcher started (interval={interval_seconds}s)")
+    while True:
+        result = await tick(deps)
+        if result.queue_pops_submitted or result.seedtime_released or result.removed_released:
+            _log.info(
+                f"budget watcher tick: qbit_seen={result.qbit_torrents_seen} "
+                f"released_seedtime={result.seedtime_released} "
+                f"released_removed={result.removed_released} "
+                f"pops={result.queue_pops_submitted}/{result.queue_pops_attempted}"
+            )
+        elif result.error:
+            _log.warning(f"budget watcher tick error: {result.error}")
+
+        if stop_event is not None and stop_event.is_set():
+            _log.info("budget watcher stop_event signaled, exiting loop")
+            return
+
+        try:
+            if stop_event is not None:
+                # Wait for either the interval OR a stop signal —
+                # mirrors the IRC client's manual-stop guard so a
+                # shutdown doesn't have to wait through a sleep.
+                await asyncio.wait_for(
+                    stop_event.wait(), timeout=interval_seconds
+                )
+                _log.info("budget watcher stop_event during sleep, exiting loop")
+                return
+            else:
+                await asyncio.sleep(interval_seconds)
+        except asyncio.TimeoutError:
+            continue  # interval elapsed normally

@@ -1,0 +1,614 @@
+# One author per line
+A C Salter
+A C Whitney
+A H Vale
+A J Calvin
+A J Cerna
+A J Markam
+A K DuBoff
+A M Cunning
+A R Rend
+A S Tamaki
+A V Ray
+Aaron Bunce
+Ace Strutton
+Adam Bright
+Adam Lance
+Adrian Tchaikovsky
+Adrianne Strickland
+Aer-Ki Jyr
+Aiden Phoenix
+Aileen Erin
+Ajax Lygan
+Alan Moria
+Alex Knowles
+Alex Kosh
+Alex Prone
+Alex Rath
+Alex Savage
+Alex Toxic
+Alexander Wales
+Alexey Kovtunov
+Ali Hazelwood
+Alphonse Fisk
+Amie Kaufman
+Ammie Harrison
+Andrea Cremer
+Andrew Givler
+Andrew Moriarty
+Andrew P McGregor
+Andrew Portman
+Andrew Rowe
+Andrzej Sapkowski
+Andy Weir
+Ann Aguirre
+Anna Mocikat
+Annabelle Hawthorne
+Anthony J Melchiorri
+Anya Merchant
+Aoikou
+Arlo Adams
+Asato Asato
+Asher Sharol
+Atlas Kane
+Austin Beck
+Avaritiabona
+Axie Oh
+B B Hartwich
+B Justin Shier
+B K Cook
+B R Keid
+Bainin
+Baoshu
+Benjamin Anthony
+Blair C Howard
+Blaise Corvin
+Blake Alexander
+Blake R Wolfe
+Borgy60
+Brad Pawlowski
+Bradley James
+Brandon Ellis
+Brandon Q Morris
+Brandon Sanderson
+Brandon Varnell
+Brett A Brooks
+Brett Brooks
+Brian Herbert
+Brian Hill
+Bruce Alan
+Bruce Sentar
+C D McKenna
+C J Cherryh
+C L Clark
+C Quince
+C S Garrand
+C Y Croc
+Candi Land
+Casey Blair
+Cassandra Clare
+Cassandra Rose Clarke
+Cassie Lein
+Cassius Lange
+Catherine Fisher
+Cebelius
+Cedric Codeseer
+Chad J Maske
+Charles Bannerman
+Chase Kilgore
+Chloe Garner
+Chris Harris
+Chris Kennedy
+Chris Tullbane
+Chris Viets
+Christian Warren Freed
+Christine Warren
+Christopher Paolini
+Christopher Ruocchio
+Chuck Black
+Cinda Williams Chima
+Cixin Liu
+Clarke Collins
+Colby Gray
+Colin Brush
+Colin Gold
+Constance Fay
+Corey King
+Cormac Fletcher
+Courtney Collins
+Craig Alanson
+Craig Martelle
+Cyrus Janiak
+D Crown
+D Glenn Seguin
+D H Willison
+D J Kingman
+D K Holmberg
+D L Bacon
+D L Jennings
+D Levesque
+D R R Hatch
+D Stahl
+D Ward Cornell
+Daigo Murasaki
+Dale Sale
+Dameon Burns
+Damien Hanson
+Dan Hanks
+Dan Michaelson
+Dan Raxor
+Daniel Cortes
+Daniel Gibbs
+Daniel Kensington
+Daniel Pascap
+Daniel Polansky
+Daniel Young
+Danny Kade
+Danny Rogan
+Dante King
+Darkly Lem
+David Burke
+David Collins
+David Niemitz
+David Sung
+Dax Hunter
+Deacon Frost
+Declan Court
+Derelict Presence
+Devan Drake
+Devon Eriksen
+Devon Hexx
+Dima Zales
+Dominik A Meier
+Dominique Mondesir
+Don Schechter
+Doubleblind
+Doug Brode
+Dukerino
+Dungeon Ducky
+Dustin Porta
+E C Myers
+E S Luck
+E William Brown
+Earliestbird
+Ecco Castle
+Eddie R Hicks
+Eden Redd
+Eden Sage
+Edgar Riggs
+Edie Skye
+Edward Ashton
+Egathentale
+Eliel Betancourt
+Eliza Hawk
+Elizabeth Richards
+Ellake
+Elliott James
+Elliott Kay
+Emery Robin
+Emily Renk Hawthorne
+Emily Sinfall
+Emily Tanner
+Epsyl04
+Eric Nylund
+Eric Vall
+Eric Wesson
+Ernest Cline
+Ethan Gale
+Ethan Shaw
+Eugene Gabourel
+Evan Barker
+F G Smith
+Felix Taylor
+Fortysixtyfour
+Frank Herbert
+Frank J Cavill
+Frank O'Connor
+Fred Hughes
+Freya Stone
+G D Brooks
+G P Hudson
+G S D'Moore
+G W Constable
+Galen Surlak-Ramsey
+Gameyy Builds
+Gerald Locke
+Glynn Stewart
+Grady Sparks
+Greg Bear
+Greig Beck
+Griffon Hardy
+Groucho Jones
+Gwen Grayson
+H C Mills
+Hadwin Fuller
+Hank Dolworth
+Happeh Pills
+Harry Richardson
+Henrik Saetre
+Hikaru Genji
+Holly Black
+Hunter Dane
+Ian Boggs
+Isaac Keyes
+Isuna Hasekura
+J B Corvin
+J C Cervantes
+J D Glasscock
+J Fitzpatrick Mauldin
+J Foster Ward
+J G Jerome
+J J Bookerson
+J J Cross
+J Kraft Mitchell
+J L Costumero
+J L Harrie
+J L Williams
+J N Chaney
+J Parsons
+J S Morin
+J Scott Miles
+J T Knight
+J T Nicholas
+Jace Cannon
+Jack Bryce
+Jack Porter
+Jack Spry
+Jacob Holo
+Jake Daniel
+Jake Lazarus
+Jake Malory
+James Azure
+James David Victor
+James Galloway
+James Gunn
+James Haddock
+James Osiris Baldwin
+James Riley
+James S A Corey
+Jamie Davis
+Jason Anspach
+Jason Marino
+Jasper T Scott
+Jaxon Reed
+Jaxon Starforge
+Jay Aury
+Jay Kristoff
+Jaz Primo
+Jeff Kirkland
+Jeffery H Haskell
+Jen Finelli
+Jennifer Lynn Barnes
+Jennifer Ridyard
+Jeremy J Folan
+Jeremy Patenaude
+Jeremy Robinson
+Jeremy Zenith
+Jessahme Wren
+Jessica Deen Norris
+Jessica Khoury
+Jessie Mihalik
+Jim Butcher
+Jim Quill
+Jin Holland
+Joe J Bailey
+Joedan Worley
+Joel Shepherd
+John Akers
+John Birmingham
+John Connolly
+John Conroe
+John Cressman
+John L French
+John Shirley
+John van Stry
+John Walker
+Jon Frater
+Jon Messenger
+Jon Roberts
+Jonathan P Brazee
+Joseph Staten
+Joseph Young
+Josh Kendig
+Joshua Dalzelle
+Josi Russell
+Josiah Bancroft
+Julia Moonie
+Julian Reaux
+Julie Law
+Jun Eishima
+Justin Marks
+K D Robertson
+K Georgiades Aka Pathofpen
+K J McDonald
+K M Shea
+K R Treadway
+Kaden Love
+Kaiden MacRigh
+Kaitlyn Davis
+Kal Griffith
+Karen Traviss
+Kasey Lex
+Kay W Williams
+Kaz Velveto
+Keegan Connelly
+Kelly Gay
+Kenny King
+Kevin J Anderson
+Kevin J Simington
+Kevin White
+Kimberly Derting
+Kingsley Khan
+Kirk Mason
+Kirsten McKenzie
+Kureta
+L M Juniper
+L R W Lee
+Laini Taylor
+Landon Scott
+Lara X Lust
+Leigh Bardugo
+Leo Thornvale
+Leon West
+Lesli Richardson
+Lin Carter
+Liu Cixin
+Logan Jacobs
+Logan Stone
+Lola Dodge
+Lost Rain
+Loïc Ralet
+Luca de Rosa
+Lucas Webber
+Luke Chmilenko
+Luke Mitchell
+Luke Witten
+Lunadea
+Lyn Alden
+Lyra Strake
+M E Thorne
+M F Lerma
+M J Michaels
+M R Frost
+M Tress
+Mack Landry
+Maddox Bevan
+Marc Miller
+Marc Mulero
+Marcus Cass
+Marcus Sloss
+Marie Lu
+Marissa Meyer
+Mark A Ellis
+Mark Arrows
+Mark Cavanagh
+Mark Coveny
+Mark de Jager
+Martha Wells
+Marvin Knight
+Mary E Pearson
+Mashton Xx
+Mashton Xy
+Matt Forbeck
+Matt Navarro
+Matt Waid
+Matthew A Goodwin
+Max Nowaz
+Maxime J Durand
+Megan Whalen Turner
+Mephisto
+Michael Borz
+Michael Dalton
+Michael E Thies
+Michael Miller
+Michael Nayak
+Michael R Hicks
+Michael Simon
+Micky Carre
+Mike Bristane
+Mike Caliban
+Miko Sage
+Miles Hunter
+Milo Storm
+Misty Vixen
+Montgomery Quinn
+Morgan Ranger
+Morgan Rhodes
+Morgan Rice
+N C Scrimgeour
+N Rodriguez
+Namu
+Nathan Hystad
+Nathan Pierce
+Neal Shusterman
+Neil Bimbeau
+Nemo Blanc
+Nicholas Gaumer
+Nicholas Sansbury Smith
+Nick Blade
+Nick Noble
+Nick Snape
+Nigozyu
+Noah Chinn
+Noah Layton
+Nolan Locke
+Oliver Voss
+Orson Scott Card
+P A Vasey
+P Z Walker
+Pacey Holden
+Patricia Briggs
+Patrick Underwood
+Paul Emery
+Pawel Niezgoda
+Persimmon
+Pete A O'Donnell
+Peter A Flannery
+Peter David
+Peter J Woods
+Peter North
+Peter Osterlund
+Philipp Münzer
+Pierce Brown
+Pierce Grey
+Pierce Scott
+Pirate Opotato
+Quentin Kilgore
+Quinn Loftis
+R A Hatton
+R C Joshua
+R Clazy
+R E Palmer
+R S McCoy
+Rachel Aukes
+Rachel Cherie
+Rachel Ní Chuirc
+Rand Miller
+Randi Darren
+Rebecca Yarros
+Reece Landon
+Regina Watts
+Renee Dugan
+Rhett C Bruno
+Rhiannon Held
+Richard Swan
+Richard Vega
+Rick Campbell
+Rick Moskovitz
+Rick Partlow
+Rifujin Na Magonote
+Ringo Hunnigan
+Roanne Lau
+Rob J Hayes
+Robert Charlton
+Robert Jordan
+Robert M Kerns
+Robyn Bee
+Rocket Shokai
+Roger Black
+Roman Prokofiev
+Roman Savarovsky
+Rory Surtain
+Ros Per
+Rosaria Munda
+Roy Colt
+Russ Stone
+Ryan Anderson
+Ryan Cahill
+Ryan Casey
+Ryan Eisenhower
+Ryan Jackson
+Ryan Tang
+Ryuto
+S D McKittrick
+S Z Attwell
+Sabaa Tahir
+Sabine Frisch
+Samantha Heuwagen
+Sarah Hawke
+Saving Throw
+Scarlett Gale
+Scott Bartlett
+Scott Moon
+Scott Reintgen
+Scott Sigler
+Scott Sinclair
+Scott Warren
+Sean Dunning
+Sean Oswald
+Sebastian Guzman
+Sebastien de Castell
+Seomal
+Seth Jaffe
+Seth Ring
+Shami Stovall
+Shawn Wilson
+Shigeru Sagazaki
+Ship Teaser
+Shirtaloon
+Silas Sinclair
+Silver Linings
+Snekguy
+Solomon Ignis
+Soman Chainani
+St Arkham
+Stefan Mazzara
+Stephen King
+Stephenie Meyer
+Steve Gay
+Steve McHugh
+Steve Rzasa
+Stick Swinger
+Stoham Baginbott
+Street Xg
+Suji Kim
+Sunrisecv
+Susan Dennard
+Susan Kaye Quinn
+Suzanne Palmer
+Sylvain Neuvel
+T E Bakutis
+T E Butcher
+T R Harris
+Tabitha Lord
+Tamamaru
+Taran Matharu
+Tate Bull
+Terry Brooks
+Terry Goodkind
+Terry Maggert
+Terry Mixon
+The Veiled Man
+Thiago Abdalla
+Thomas J Doscher
+Thomas Webb
+Tim Pratt
+Timothy McGowen
+Timothy Zahn
+Tobias S Buckell
+Toby Neighbors
+Todd McCaffrey
+Tom Draycott
+Tom Elliot
+Tom Larcombe
+Toni Binns
+Toru Shirogane
+Toryuu
+Traci Chee
+Travis Deverell
+Trevor Lewis
+Troy Ashford
+Troy Denning
+Troy Kotanides
+Turner Tellborn
+Tyler Bowman
+Tyler Burnworth
+Tyler E C Burnworth
+V E Schwab
+Valen Woods
+Vance Ryder
+Various
+Vic Void
+Virgil Knightley
+Vivian Arend
+Vlad ben Avorham
+Void Herald
+W D Robertson
+W Penn White
+Waldo Rodriguez
+Warden Locke
+Wen Spencer
+Wick Welker
+Will Crudge
+William C Dietz
+William D Arand
+William Ledbetter
+Wolfe Locke
+Wren K Morris
+Xander Jade
+Xiran Jay Zhao
+Yangsze Choo
+Yoko Taro
+Yuki Knightley
+Zogarth
+

@@ -1,0 +1,165 @@
+"""
+Fake MAM HTTP server for unit tests.
+
+We deliberately do NOT hit real MAM in unit tests — every request
+costs real-world side effects (snatch budget, IP register rate limits,
+plus the obvious "we shouldn't be hammering MAM from CI"). Instead,
+we install an `httpx.MockTransport` into the cookie module's shared
+client and intercept every request that the production code would have
+made.
+
+The `FakeMAM` class is a programmable response builder. Each test
+constructs an instance, tweaks the fields it cares about, and the
+`fake_mam` pytest fixture wires it into `cookie._client` for the
+duration of the test. After the test the original client is restored.
+
+Three endpoints are simulated, matching the real MAM surface:
+
+  - loadSearchJSONbasic.php   — search probe (cookie.verify_session)
+  - dynamicSeedbox.php        — IP register     (cookie.register_ip)
+  - download.php              — .torrent fetch  (grab.fetch_torrent)
+
+Each endpoint has independently configurable status code, body, and
+headers, plus a request log for assertions ("did the code under test
+actually call this endpoint with the right cookie?").
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Optional
+
+import httpx
+
+
+# A minimally valid bencoded torrent file: a top-level dict with
+# `announce` and `info` keys. The info dict contains the minimum
+# required fields (`name`, `piece length`, `pieces`) so it's a real
+# torrent file shape — not just a marker. The string lengths must be
+# byte-accurate or the bencode parser in `app.mam.torrent_meta` will
+# misread the structure (it bit us once already; the announce URL is
+# 31 bytes, not 30).
+MINIMAL_BENCODED_TORRENT = (
+    b"d8:announce31:http://tracker.example/announce4:infod"
+    b"4:name8:test.txt12:piece lengthi16384e6:pieces20:" + b"\x00" * 20 + b"ee"
+)
+
+# A representative HTML login page response — what MAM serves when
+# the cookie has been rotated/expired and they redirect you to log in.
+# The actual page is much longer; we only need the `<html` token at the
+# top so the body sniffer triggers.
+HTML_LOGIN_PAGE = (
+    b"<!DOCTYPE html>\n<html>\n<head><title>MyAnonamouse - Login</title>"
+    b"</head>\n<body>Please log in.</body></html>"
+)
+
+
+@dataclass
+class _EndpointConfig:
+    status: int = 200
+    body: bytes = b""
+    headers: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class FakeMAM:
+    """Programmable fake for the three MAM HTTP endpoints we touch.
+
+    Defaults model the happy path: every endpoint returns a successful
+    response. Tests override the fields they care about — e.g.
+
+        fake.download.status = 403
+        fake.download.body = HTML_LOGIN_PAGE
+
+    The `requests` list captures every intercepted request in order so
+    tests can assert on URLs, headers (Cookie), method, and content.
+    """
+
+    search: _EndpointConfig = field(
+        default_factory=lambda: _EndpointConfig(
+            status=200,
+            body=b'{"perpage":5,"start":0,"found":0,"data":[]}',
+            headers={"content-type": "application/json"},
+        )
+    )
+    dynip: _EndpointConfig = field(
+        default_factory=lambda: _EndpointConfig(
+            status=200,
+            body=(
+                b'{"Success":true,"msg":"Completed","ip":"192.0.2.1",'
+                b'"ASN":64500,"AS":"Test ISP"}'
+            ),
+            headers={"content-type": "application/json"},
+        )
+    )
+    download: _EndpointConfig = field(
+        default_factory=lambda: _EndpointConfig(
+            status=200,
+            body=MINIMAL_BENCODED_TORRENT,
+            headers={"content-type": "application/x-bittorrent"},
+        )
+    )
+
+    requests: list[httpx.Request] = field(default_factory=list)
+
+    def _handler(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        url = str(request.url)
+
+        if "loadSearchJSONbasic.php" in url:
+            cfg = self.search
+        elif "dynamicSeedbox.php" in url:
+            cfg = self.dynip
+        elif "download.php" in url:
+            cfg = self.download
+        else:
+            return httpx.Response(
+                404,
+                content=b"unknown fake-MAM endpoint",
+                headers={"content-type": "text/plain"},
+            )
+
+        return httpx.Response(
+            cfg.status,
+            content=cfg.body,
+            headers=cfg.headers,
+        )
+
+    def transport(self) -> httpx.MockTransport:
+        return httpx.MockTransport(self._handler)
+
+    # ─── Convenience helpers for common failure scenarios ────
+
+    def simulate_cookie_expired_html(self) -> None:
+        """All endpoints return 200 + HTML login page (MAM's typical
+        response when a cookie has been rotated or expired)."""
+        for cfg in (self.search, self.dynip, self.download):
+            cfg.status = 200
+            cfg.body = HTML_LOGIN_PAGE
+            cfg.headers = {"content-type": "text/html"}
+
+    def simulate_cookie_rejected_403(self) -> None:
+        """All endpoints return 403 Forbidden — what MAM does when
+        the auth header is wrong but they bother to use a real status code."""
+        for cfg in (self.search, self.dynip, self.download):
+            cfg.status = 403
+            cfg.body = b"forbidden"
+            cfg.headers = {"content-type": "text/plain"}
+
+    def simulate_torrent_not_found(self) -> None:
+        """The download endpoint returns 404 — torrent removed from MAM."""
+        self.download.status = 404
+        self.download.body = b"not found"
+
+    def simulate_server_error(self) -> None:
+        """The download endpoint returns 500 — transient MAM-side issue."""
+        self.download.status = 500
+        self.download.body = b"internal server error"
+
+    def cookies_seen(self) -> list[str]:
+        """Extract every `mam_id=...` cookie value from captured requests."""
+        out = []
+        for req in self.requests:
+            cookie_header = req.headers.get("cookie", "")
+            if cookie_header.startswith("mam_id="):
+                out.append(cookie_header[len("mam_id=") :])
+        return out
