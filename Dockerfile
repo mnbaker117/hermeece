@@ -16,9 +16,18 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install runtime dependencies first so the layer cache stays warm
-# across code changes. Test deps live in requirements-dev.txt and
-# are deliberately NOT installed in the production image.
+# OS deps:
+#   - sqlite3: ad-hoc DB inspection during ops debugging
+#     (`docker compose exec hermeece sqlite3 /app/data/hermeece.db ...`).
+#     ~1MB extra; the convenience pays for itself the first time
+#     you need to look at a `grabs` row in production.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python runtime dependencies first so the layer cache stays
+# warm across code changes. Test deps live in requirements-dev.txt
+# and are deliberately NOT installed in the production image.
 COPY requirements.txt ./
 RUN pip install -r requirements.txt
 

@@ -53,9 +53,11 @@ ENV_QBIT_URL = os.getenv("QBIT_URL", "")
 ENV_QBIT_USERNAME = os.getenv("QBIT_USERNAME", "")
 ENV_QBIT_PASSWORD = os.getenv("QBIT_PASSWORD", "")
 
-# qBittorrent download category that Hermeece watches for completed torrents.
-# Defaults to the existing OP convention; configurable for portability.
-ENV_QBIT_WATCH_CATEGORY = os.getenv("QBIT_WATCH_CATEGORY", "mam-complete")
+# qBittorrent download category that Hermeece watches for completed
+# torrents. Default matches the OP's existing qBit setup convention
+# of `[mam-reseed]` (the bracket characters are part of the category
+# name, not a glob — qBit accepts arbitrary strings here).
+ENV_QBIT_WATCH_CATEGORY = os.getenv("QBIT_WATCH_CATEGORY", "[mam-reseed]")
 
 # Calibre library path (mounted into the container). The library directory
 # that contains metadata.db. Empty by default — user configures via Settings.
@@ -138,7 +140,7 @@ DEFAULT_SETTINGS = {
     "qbit_url": "",
     "qbit_username": "",
     "qbit_password": "",
-    "qbit_watch_category": "mam-complete",
+    "qbit_watch_category": "[mam-reseed]",
     # How often to poll qBit for completed torrents and seedtime updates.
     "qbit_poll_interval_seconds": 60,
 
@@ -255,7 +257,7 @@ def _apply_env_overrides(settings: dict):
         settings["qbit_username"] = ENV_QBIT_USERNAME
     if ENV_QBIT_PASSWORD and not settings.get("qbit_password"):
         settings["qbit_password"] = ENV_QBIT_PASSWORD
-    # qbit_watch_category has a non-empty default ("mam-complete"), so the
+    # qbit_watch_category has a non-empty default ("[mam-reseed]"), so the
     # usual `not settings.get(...)` guard would silently ignore an env var
     # override. We compare against the default instead so the env var only
     # wins on first run, never overrides a value the user has explicitly

@@ -52,7 +52,13 @@ services:
       QBIT_URL: "http://10.0.10.20:8080"   # REQUIRED — adjust IP/port
       QBIT_USERNAME: ""             # REQUIRED
       QBIT_PASSWORD: ""             # REQUIRED
-      QBIT_WATCH_CATEGORY: "mam-complete"   # qBit category to use
+      # qBit category Hermeece submits new grabs into AND polls for
+      # completion / seedtime tracking. Must match the category you
+      # have configured in qBit's WebUI exactly, including any
+      # bracket characters. Common conventions: "mam", "[mam-reseed]",
+      # "ebooks", etc. Whatever you pick, Hermeece will only see and
+      # track torrents in this one category.
+      QBIT_WATCH_CATEGORY: "[mam-reseed]"
 
       # ── Optional ─────────────────────────────────────────
       # Bind to a non-default port (avoids the AthenaScout 8787 clash)

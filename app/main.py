@@ -74,7 +74,7 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
     return DispatcherDeps(
         filter_config=_build_filter_config(settings),
         mam_token=settings.get("mam_session_id", ""),
-        qbit_category=settings.get("qbit_watch_category", "mam-complete"),
+        qbit_category=settings.get("qbit_watch_category", "[mam-reseed]"),
         budget_cap=int(settings.get("snatch_budget_cap", 200)),
         queue_max=int(settings.get("snatch_queue_max", 100)),
         queue_mode_enabled=settings.get("snatch_full_mode", "queue") == "queue",
@@ -144,7 +144,7 @@ async def lifespan(app: FastAPI):
         )
         _log.info(
             f"Budget watcher started (interval={interval}s, "
-            f"qbit_category={settings.get('qbit_watch_category', 'mam-complete')})"
+            f"qbit_category={settings.get('qbit_watch_category', '[mam-reseed]')})"
         )
     else:
         _log.info("Budget watcher disabled (qbit_url not configured)")

@@ -15,7 +15,7 @@ production checks.
   with Autobrr is fine)
 - A valid `mam_id` session cookie from MAM → Preferences → Security
 - qBittorrent WebUI credentials and a category configured
-  (`mam-complete` by default)
+  (`[mam-reseed]` by default — must match exactly, brackets included)
 
 ## First-time deploy
 
@@ -71,7 +71,7 @@ Watch for these lines in order:
 Hermeece starting
 Database initialized
 Dispatcher initialized
-Budget watcher started (interval=60s, qbit_category=mam-complete)
+Budget watcher started (interval=60s, qbit_category=[mam-reseed])
 IRC listener started (server=irc.myanonamouse.net, channel=#announce, nick=...)
 ```
 
@@ -132,7 +132,7 @@ Expected response:
 ```
 
 Now verify in qBittorrent's WebUI: the torrent should appear in
-the `mam-complete` category and start downloading. If it doesn't,
+the `[mam-reseed]` category and start downloading. If it doesn't,
 the `qbit_hash` from the response tells you what to look for.
 
 **This counts as one snatch against your MAM budget.**
