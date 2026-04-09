@@ -45,6 +45,17 @@ from app.mam.announce import parse_announce
 _log = logging.getLogger("hermeece.mam.irc")
 
 
+class IrcFatalConfigError(Exception):
+    """An IRC connection failed in a way that no amount of reconnecting
+    will fix — wrong credentials, nick already claimed by another
+    client, SASL not supported, etc. The supervised loop catches this
+    distinctly from generic ConnectionError and stops the listener
+    entirely instead of backing off and retrying. The user has to
+    fix the config and restart Hermeece (or the lifespan will rebuild
+    the dispatcher when settings change in Phase 3).
+    """
+
+
 # ─── Config ──────────────────────────────────────────────────
 
 
@@ -233,6 +244,20 @@ class IrcClient:
                 attempt = 0
             except asyncio.CancelledError:
                 raise
+            except IrcFatalConfigError as e:
+                # Bail out entirely. Reconnecting on a config error
+                # would just hit the same wall on the next handshake.
+                # The user has to fix their settings and restart
+                # Hermeece — there is no remediation we can do from
+                # inside the loop. Logged at ERROR so it stands out
+                # in the dashboard / log scroll.
+                self.last_error = f"FATAL: {e}"
+                _log.error(
+                    f"IRC listener stopped permanently — {e}. "
+                    f"Fix your settings and restart Hermeece to retry."
+                )
+                self._reset_status()
+                break
             except Exception as e:
                 self.last_error = f"{type(e).__name__}: {e}"
                 _log.warning(f"IRC connection error: {self.last_error}")
@@ -393,10 +418,12 @@ class IrcClient:
         """Read until we see a message whose command matches any given.
 
         Handles PINGs transparently along the way (responds with
-        PONG and keeps reading) so callers don't have to. The
-        connection-keepalive logic is the same in every state of the
-        handshake — keeping it here means each handshake step is two
-        lines (`_send`, `_expect`) without per-step PING handling.
+        PONG and keeps reading) so callers don't have to. Also
+        detects fatal handshake errors (433 nick in use, 432
+        erroneous nick, 462 already registered) and raises
+        `IrcFatalConfigError` so the supervised loop can stop the
+        listener entirely instead of reconnecting in a loop the
+        user can't fix without changing settings.
         """
         if timeout is None:
             timeout = self.config.handshake_timeout_seconds
@@ -417,6 +444,41 @@ class IrcClient:
             if msg.command == "PING":
                 await self._send(f"PONG :{msg.trailing or (msg.params[0] if msg.params else '')}")
                 continue
+
+            # Fatal config errors during handshake. Detected here
+            # rather than at the call sites because all of them can
+            # arrive at any handshake `_expect` between sending NICK
+            # and getting RPL_WELCOME — putting the check in one
+            # place means we never miss them no matter where in the
+            # flow they show up.
+            if msg.command == "433":
+                # Real-world example from MAM IRC:
+                #   :irc1.myanonamouse.net 433 * Turtles81_arrbot :Nickname is already in use.
+                # Means another IRC client is currently connected as
+                # this bot nick. Hermeece can NEVER fix this on its
+                # own — it has to be a different nick or the other
+                # client has to disconnect first.
+                attempted = msg.params[1] if len(msg.params) > 1 else self.config.nick
+                raise IrcFatalConfigError(
+                    f"IRC nickname '{attempted}' is already in use — "
+                    f"either another client is connected as this nick "
+                    f"(check Autobrr, etc.) or pick a different "
+                    f"mam_irc_nick in settings.json"
+                )
+            if msg.command == "432":
+                attempted = msg.params[1] if len(msg.params) > 1 else self.config.nick
+                raise IrcFatalConfigError(
+                    f"IRC server rejected nickname '{attempted}' as "
+                    f"erroneous: {msg.trailing}"
+                )
+            if msg.command == "462":
+                # "You may not reregister" — usually means the
+                # handshake replayed somehow. Treat as fatal because
+                # reconnecting won't fix it without state cleanup.
+                raise IrcFatalConfigError(
+                    f"IRC server says we're already registered: {msg.trailing}"
+                )
+
             if msg.command in wanted:
                 return msg
 

@@ -498,3 +498,90 @@ class TestReconnect:
         # most max_reconnect_attempts + 1.
         assert 1 <= attempts["n"] <= config.max_reconnect_attempts + 1
         assert "ConnectionRefusedError" in client.last_error
+
+
+# ─── Fatal config errors (433 nick collision, etc.) ──────────
+
+
+class TestFatalConfigErrors:
+    """The IRC client must distinguish 'transient network failure'
+    (which deserves a reconnect loop) from 'config error the user
+    has to fix' (which should fail-fast and stop the listener).
+
+    These tests pin down the fail-fast paths so we don't end up
+    silently reconnecting forever in production. Real example
+    that motivated this: a 433 nickname-in-use response from MAM
+    when Autobrr was already connected as the same bot nick took
+    Hermeece into a registration-timeout-then-reconnect loop with
+    no clear failure mode in the logs.
+    """
+
+    async def test_433_nick_in_use_stops_listener_permanently(self, fake_irc):
+        # Drive the SASL handshake up to the point where the server
+        # would send 433. The 433 message can arrive any time
+        # between NICK and RPL_WELCOME — we feed it after CAP REQ
+        # is acknowledged, which matches what real MAM IRC does.
+        config = _make_config(
+            max_reconnect_attempts=99,  # would be huge if we DID reconnect
+            handshake_timeout_seconds=2.0,
+        )
+        client = IrcClient(config, _Collector(), connect_fn=fake_irc.connect_fn)
+        task = asyncio.create_task(client.run_forever())
+        try:
+            await fake_irc.wait_for_line("CAP LS 302")
+            fake_irc.feed_line(":server CAP * LS :sasl")
+            await fake_irc.wait_for_line("CAP REQ :sasl")
+            fake_irc.feed_line(":server CAP * ACK :sasl")
+            # Server returns 433 instead of accepting our nick.
+            # Use the same shape MAM IRC really emits:
+            #   :server 433 * Turtles81_arrbot :Nickname is already in use.
+            fake_irc.feed_line(
+                ":server 433 * testbot :Nickname is already in use."
+            )
+
+            # The listener should bail out immediately, NOT enter the
+            # reconnect backoff loop. Generous timeout so a busy CI
+            # box doesn't false-positive.
+            await asyncio.wait_for(task, timeout=2.0)
+
+            # Verify the failure was recorded as fatal, not transient.
+            assert "FATAL" in client.last_error
+            assert "in use" in client.last_error.lower()
+            # Critically: only ONE connection attempt was made. If
+            # the fix regresses, this number jumps to 2+ as the
+            # reconnect loop fires.
+            assert fake_irc.connect_count == 1
+        finally:
+            await client.stop()
+            try:
+                await asyncio.wait_for(task, timeout=1.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+
+    async def test_432_erroneous_nick_stops_listener_permanently(self, fake_irc):
+        # 432 is "ERR_ERRONEUSNICKNAME" — the server rejected the
+        # nick as syntactically invalid. Same fail-fast semantics
+        # as 433 because the user has to change the config.
+        config = _make_config(
+            max_reconnect_attempts=99, handshake_timeout_seconds=2.0
+        )
+        client = IrcClient(config, _Collector(), connect_fn=fake_irc.connect_fn)
+        task = asyncio.create_task(client.run_forever())
+        try:
+            await fake_irc.wait_for_line("CAP LS 302")
+            fake_irc.feed_line(":server CAP * LS :sasl")
+            await fake_irc.wait_for_line("CAP REQ :sasl")
+            fake_irc.feed_line(":server CAP * ACK :sasl")
+            fake_irc.feed_line(
+                ":server 432 * bad-nick! :Erroneous nickname"
+            )
+            await asyncio.wait_for(task, timeout=2.0)
+
+            assert "FATAL" in client.last_error
+            assert fake_irc.connect_count == 1
+        finally:
+            await client.stop()
+            try:
+                await asyncio.wait_for(task, timeout=1.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
