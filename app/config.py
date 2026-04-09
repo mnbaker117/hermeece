@@ -41,6 +41,13 @@ ENV_VERBOSE_LOGGING = os.getenv("VERBOSE_LOGGING", "").lower() in ("true", "1", 
 # the UI is the only way to update it.
 ENV_MAM_SESSION_ID = os.getenv("MAM_SESSION_ID", "")
 
+# MAM IRC bot credentials — first-run seeds. The lifespan reads the
+# saved settings to decide whether to start the IRC listener at all,
+# so all three of these must be populated for the listener to come up.
+ENV_MAM_IRC_NICK = os.getenv("MAM_IRC_NICK", "")
+ENV_MAM_IRC_ACCOUNT = os.getenv("MAM_IRC_ACCOUNT", "")
+ENV_MAM_IRC_PASSWORD = os.getenv("MAM_IRC_PASSWORD", "")
+
 # qBittorrent connection — first-run seeds.
 ENV_QBIT_URL = os.getenv("QBIT_URL", "")
 ENV_QBIT_USERNAME = os.getenv("QBIT_USERNAME", "")
@@ -236,13 +243,27 @@ def _apply_env_overrides(settings: dict):
     """Seed settings from env vars on first run only."""
     if ENV_MAM_SESSION_ID and not settings.get("mam_session_id"):
         settings["mam_session_id"] = ENV_MAM_SESSION_ID
+    if ENV_MAM_IRC_NICK and not settings.get("mam_irc_nick"):
+        settings["mam_irc_nick"] = ENV_MAM_IRC_NICK
+    if ENV_MAM_IRC_ACCOUNT and not settings.get("mam_irc_account"):
+        settings["mam_irc_account"] = ENV_MAM_IRC_ACCOUNT
+    if ENV_MAM_IRC_PASSWORD and not settings.get("mam_irc_password"):
+        settings["mam_irc_password"] = ENV_MAM_IRC_PASSWORD
     if ENV_QBIT_URL and not settings.get("qbit_url"):
         settings["qbit_url"] = ENV_QBIT_URL
     if ENV_QBIT_USERNAME and not settings.get("qbit_username"):
         settings["qbit_username"] = ENV_QBIT_USERNAME
     if ENV_QBIT_PASSWORD and not settings.get("qbit_password"):
         settings["qbit_password"] = ENV_QBIT_PASSWORD
-    if ENV_QBIT_WATCH_CATEGORY and not settings.get("qbit_watch_category"):
+    # qbit_watch_category has a non-empty default ("mam-complete"), so the
+    # usual `not settings.get(...)` guard would silently ignore an env var
+    # override. We compare against the default instead so the env var only
+    # wins on first run, never overrides a value the user has explicitly
+    # changed via the (future) Settings UI.
+    if (
+        ENV_QBIT_WATCH_CATEGORY
+        and settings.get("qbit_watch_category") == DEFAULT_SETTINGS["qbit_watch_category"]
+    ):
         settings["qbit_watch_category"] = ENV_QBIT_WATCH_CATEGORY
     if ENV_CALIBRE_LIBRARY_PATH and not settings.get("calibre_library_path"):
         settings["calibre_library_path"] = ENV_CALIBRE_LIBRARY_PATH
