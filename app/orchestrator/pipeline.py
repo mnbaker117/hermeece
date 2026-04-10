@@ -28,6 +28,7 @@ from typing import Optional
 import aiosqlite
 
 from app.metadata.extract import BookMetadata, extract as extract_metadata
+from app.metadata.writer import patch_epub_metadata
 from app.notify import ntfy
 from app.orchestrator.auto_train import train_authors_from_blob
 from app.orchestrator.download_watcher import CompletionEvent
@@ -180,6 +181,26 @@ async def process_completion(
                         f"sink {sink_result.sink_name} failed: {sink_result.error}",
                         ntfy_url, ntfy_topic)
             return False
+
+        # Patch the COPY's epub metadata with correct author/title
+        # from the announce. The sink already created a copy (in the
+        # ingest dir or staging), so this modifies the copy — never
+        # the seeding original in the download directory.
+        delivered_path = Path(sink_result.detail) if sink_result.detail else None
+        if (
+            delivered_path
+            and delivered_path.exists()
+            and delivered_path.suffix.lower() == ".epub"
+            and metadata.author
+        ):
+            authors = [a.strip() for a in metadata.author.split(",") if a.strip()]
+            patch_epub_metadata(
+                delivered_path,
+                title=metadata.title or None,
+                authors=authors if authors else None,
+                series=metadata.series or None,
+                series_index=metadata.series_index or None,
+            )
 
         await pipe_storage.set_state(
             db, run_id, pipe_storage.PIPE_SUNK,
