@@ -41,6 +41,13 @@ STATE_FAILED_COOKIE_EXPIRED = "failed_cookie_expired"
 STATE_FAILED_TORRENT_GONE = "failed_torrent_gone"
 STATE_FAILED_QBIT_REJECTED = "failed_qbit_rejected"
 STATE_FAILED_UNKNOWN = "failed_unknown"
+# qBit reported the torrent already exists in the client. Not a real
+# failure (the torrent IS in qBit, which is what Hermeece wanted),
+# but the dispatcher couldn't verify the add it expected — the
+# `qbit_hash` we computed via info_hash IS the existing torrent's
+# hash, so the ledger entry is still meaningful. Future iteration
+# could detect this as soft-success and stop counting it as failed.
+STATE_DUPLICATE_IN_QBIT = "duplicate_in_qbit"
 
 
 @dataclass(frozen=True)

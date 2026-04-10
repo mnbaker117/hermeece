@@ -219,8 +219,26 @@ class QbitClient:
                 failure_detail=f"{type(e).__name__}: {e}",
             )
 
-        if resp.status_code == 200 and resp.text.strip() == "Ok.":
-            return AddResult(success=True)
+        if resp.status_code == 200:
+            body = resp.text.strip()
+            if body == "Ok.":
+                return AddResult(success=True)
+            if body == "Fails.":
+                # qBit returns HTTP 200 with body "Fails." when the
+                # torrent is already in the client (duplicate hash).
+                # NOT a real failure from Hermeece's perspective —
+                # the torrent IS in qBit, which is what we wanted.
+                # Surface as `duplicate` so the dispatcher can
+                # decide policy: in Phase 1 it still records the
+                # grab as failed (because we couldn't verify the
+                # add we expected), but a future iteration could
+                # treat duplicates as success and look up the
+                # existing torrent's hash via list_torrents.
+                return AddResult(
+                    success=False,
+                    failure_kind="duplicate",
+                    failure_detail="qBit reports torrent already exists (HTTP 200 'Fails.')",
+                )
 
         if resp.status_code == 403:
             return AddResult(

@@ -43,6 +43,7 @@ from app.mam.cookie import (
 from app.mam.grab import fetch_torrent
 from app.mam.irc import IrcClient, IrcConfig
 from app.orchestrator.budget_watcher import run_loop as budget_watcher_loop
+from app.orchestrator.cookie_keepalive import run_loop as cookie_keepalive_loop
 from app.orchestrator.dispatch import DispatcherDeps, handle_announce
 from app.routers.inject import router as inject_router
 
@@ -265,6 +266,31 @@ async def lifespan(app: FastAPI):
             "mam_irc_password to enable)"
         )
 
+    # Cookie keep-alive: hits MAM's search endpoint on a fixed
+    # interval (default 7 days) so the in-memory cookie always has
+    # something to chew on, even if Hermeece sees no other MAM
+    # activity for weeks. Without this, a long quiet period would
+    # silently expire the cookie despite all the rotation plumbing
+    # working perfectly. Auto-disabled if no cookie is configured
+    # (the keep-alive call would fail with "no MAM session" anyway).
+    if settings.get("mam_session_id"):
+        keepalive_seconds = float(
+            settings.get("cookie_keepalive_interval_hours", 168)
+        ) * 3600.0
+
+        async def _keepalive_loop_factory():
+            await cookie_keepalive_loop(interval_seconds=keepalive_seconds)
+
+        state._cookie_keepalive_task = state.supervised_task(
+            _keepalive_loop_factory, name="cookie-keepalive"
+        )
+        _log.info(
+            f"Cookie keep-alive started "
+            f"(interval={keepalive_seconds / 3600:.1f}h)"
+        )
+    else:
+        _log.info("Cookie keep-alive disabled (mam_session_id not configured)")
+
     # Phase 3 wiring lands here:
     #   - APScheduler with cookie_check / weekly_audit / daily_digest jobs
 
@@ -320,7 +346,7 @@ async def lifespan(app: FastAPI):
         # coroutines with restart-on-crash logic, so we need to
         # cancel the wrapper task itself — the inner coroutine sees
         # CancelledError and unwinds cleanly.
-        for task_attr in ("_irc_task", "_budget_watcher_task"):
+        for task_attr in ("_irc_task", "_budget_watcher_task", "_cookie_keepalive_task"):
             task = getattr(state, task_attr, None)
             if task is not None and not task.done():
                 task.cancel()

@@ -245,6 +245,24 @@ class TestAddTorrent:
         assert result.failure_kind == "unknown"
         assert "server error" in result.failure_detail.lower()
 
+    async def test_fails_body_marks_duplicate(self, fake_qbit):
+        # qBit's standard "torrent already in client" response is
+        # HTTP 200 with body literally "Fails.". Easy to misclassify
+        # as `unknown` because the status code is 200 — and we did
+        # exactly that until a real production deploy hit it. Pin
+        # the recognition down so it can't regress.
+        client = _make_client(fake_qbit)
+        try:
+            assert await client.login() is True
+            fake_qbit.add_body = b"Fails."
+            result = await client.add_torrent(MINIMAL_BENCODED_TORRENT)
+        finally:
+            await client.aclose()
+
+        assert result.success is False
+        assert result.failure_kind == "duplicate"
+        assert "already exists" in result.failure_detail.lower()
+
 
 # ─── List / get torrents ─────────────────────────────────────
 

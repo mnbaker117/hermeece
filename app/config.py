@@ -165,6 +165,19 @@ DEFAULT_SETTINGS = {
     "daily_digest_hour": 9,  # local time, 24h
 
     # ── Cron / scheduled jobs ───────────────────────────────
+    # MAM keeps a session cookie alive as long as we make at least one
+    # API call within a 15-day window. Hermeece's cookie auto-rotation
+    # only fires when something else triggers a MAM call (an inject,
+    # an IRC-driven grab) — if Hermeece sits idle for 15+ days the
+    # cookie expires silently. The keep-alive job hits MAM's search
+    # endpoint on a fixed schedule WELL inside that window so the
+    # rotation handler always has something to chew on.
+    #
+    # Default 168 hours (7 days) — half the 15-day window gives us a
+    # generous safety margin. Even if the container crashes right
+    # before the job fires, the next restart still has ~7-8 days of
+    # grace before the cookie would actually expire.
+    "cookie_keepalive_interval_hours": 168,
     "cookie_check_interval_hours": 6,
     "weekly_audit_day": "sunday",
     "weekly_audit_hour": 3,

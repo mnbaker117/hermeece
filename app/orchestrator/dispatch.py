@@ -45,7 +45,7 @@ from app.clients.base import AddResult, TorrentClient
 from app.filter.gate import Announce, Decision, FilterConfig, evaluate_announce
 from app.mam.grab import GrabResult
 from app.mam.torrent_meta import BencodeError, info_hash
-from app.rate_limit import GrabDecision, decide_grab_action
+from app.rate_limit import decide_grab_action
 from app.rate_limit import ledger as ledger_mod
 from app.rate_limit import queue as queue_mod
 from app.storage import grabs as grabs_storage
@@ -436,6 +436,8 @@ def _add_failure_state(result: AddResult) -> str:
     kind = result.failure_kind
     if kind == "rejected":
         return grabs_storage.STATE_FAILED_QBIT_REJECTED
+    if kind == "duplicate":
+        return grabs_storage.STATE_DUPLICATE_IN_QBIT
     return grabs_storage.STATE_FAILED_UNKNOWN
 
 

@@ -410,6 +410,40 @@ class TestQbitFailures:
         finally:
             await db.close()
 
+    async def test_qbit_duplicate_marks_duplicate_in_qbit(self, temp_db):
+        # qBit's "Fails." response (HTTP 200 + literal body) means
+        # the torrent is already in the client. Hermeece classifies
+        # this as `duplicate` (not a real failure — the torrent IS
+        # in qBit, which is what we wanted) and routes it to a
+        # distinct grab state so the audit log + UI can distinguish
+        # "we tried to grab something already there" from "we tried
+        # and qBit barfed."
+        qbit = _FakeQbit(
+            add_result=AddResult(
+                success=False,
+                failure_kind="duplicate",
+                failure_detail="qBit reports torrent already exists",
+            )
+        )
+        deps = _make_deps(
+            filter_config=_make_filter_config(allowed=["Brandon Sanderson"]),
+            qbit=qbit,
+        )
+        result = await handle_announce(deps, _make_announce())
+
+        db = await get_db()
+        try:
+            grab = await grabs_storage.get_grab(db, result.grab_id)
+            assert grab.state == grabs_storage.STATE_DUPLICATE_IN_QBIT
+            # No ledger entry — Hermeece never registered the torrent
+            # against its budget. Future iteration could detect the
+            # duplicate via list_torrents and create a ledger row
+            # against the existing qBit hash, but Phase 1 just logs
+            # and moves on.
+            assert await ledger_mod.count_active(db) == 0
+        finally:
+            await db.close()
+
 
 class TestBadTorrentFile:
     async def test_unparseable_bytes_short_circuits_qbit(self, temp_db):

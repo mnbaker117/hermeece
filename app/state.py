@@ -88,6 +88,14 @@ _irc_status: Dict[str, Any] = {
 _budget_watcher_task: Optional[asyncio.Task] = None
 
 
+# ─── Cookie keep-alive state ────────────────────────────────
+# Long-running background loop that hits MAM's search endpoint on a
+# fixed interval to ensure the cookie auto-rotation has SOMETHING to
+# fire on, even during long quiet periods. Without this, 15+ days
+# of Hermeece inactivity would silently expire the session cookie.
+_cookie_keepalive_task: Optional[asyncio.Task] = None
+
+
 # ─── qBit poller state ──────────────────────────────────────
 _qbit_poll_task: Optional[asyncio.Task] = None
 _qbit_status: Dict[str, Any] = {
