@@ -125,9 +125,29 @@ async def process_completion(
             )
 
         # ── Step 3: extract metadata ────────────────────────
-        metadata = BookMetadata()
+        # Read embedded metadata from the book file, then enrich
+        # with the announce data (which comes from MAM's IRC parser
+        # and is more reliable than epub metadata for author names).
+        file_metadata = BookMetadata()
         if book_path.exists():
-            metadata = extract_metadata(book_path)
+            file_metadata = extract_metadata(book_path)
+
+        # Enrich: prefer announce data for author, fall back to file.
+        grab = await grabs_storage.get_grab(db, event.grab_id)
+        announce_author = grab.author_blob if grab else ""
+        announce_title = grab.torrent_name if grab else ""
+
+        metadata = BookMetadata(
+            title=file_metadata.title or announce_title or "",
+            author=announce_author or file_metadata.author or "",
+            series=file_metadata.series,
+            series_index=file_metadata.series_index,
+            language=file_metadata.language,
+            publisher=file_metadata.publisher,
+            description=file_metadata.description,
+            isbn=file_metadata.isbn,
+            format=file_metadata.format,
+        )
 
         await pipe_storage.set_state(
             db, run_id, pipe_storage.PIPE_METADATA_DONE,
@@ -166,10 +186,11 @@ async def process_completion(
 
         # ── Step 5: auto-train ──────────────────────────────
         if auto_train_enabled:
-            author_blob = metadata.author
-            if not author_blob:
-                grab = await grabs_storage.get_grab(db, event.grab_id)
-                author_blob = grab.author_blob if grab else ""
+            # Always use the announce author_blob for training — it
+            # comes from MAM's IRC parser and reliably contains the
+            # real author names. Epub metadata author is a fallback
+            # only (often contains publisher names or other junk).
+            author_blob = announce_author or file_metadata.author or ""
             if author_blob:
                 added = await train_authors_from_blob(db, author_blob)
                 if added:
