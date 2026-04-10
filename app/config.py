@@ -173,7 +173,7 @@ DEFAULT_SETTINGS = {
     # Mode when budget is full: "queue" (fetch and hold locally, submit when
     # budget frees) or "drop" (skip the announce entirely, log to review queue).
     "snatch_full_mode": "queue",
-    "snatch_queue_max": 100,
+    "snatch_queue_max": 200,
 
     # ── qBittorrent ─────────────────────────────────────────
     "qbit_url": "",

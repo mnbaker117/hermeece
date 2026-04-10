@@ -76,7 +76,15 @@ class CWASink:
                     dest = target_dir / f"{stem}_{counter}{suffix}"
                     counter += 1
 
-            shutil.copy2(str(src), str(dest))
+            # Atomic write: copy to a hidden temp file in the same dir,
+            # then rename to the final name. CWA's inotify watcher only
+            # fires on the rename (close_write event on the final name),
+            # so it never sees a partial file. The temp filename starts
+            # with a dot so CWA's "ignored/temporary file" filter skips it.
+            tmp_dest = target_dir / f".hermeece-tmp-{dest.name}"
+            shutil.copy2(str(src), str(tmp_dest))
+            tmp_dest.replace(dest)  # atomic rename on the same filesystem
+
             _log.info("cwa sink: dropped %s → %s", src.name, dest)
             return SinkResult(
                 success=True,

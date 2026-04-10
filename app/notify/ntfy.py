@@ -48,6 +48,41 @@ async def aclose() -> None:
             _client = None
 
 
+def _resolve_endpoint(url: str, topic: str) -> Optional[str]:
+    """Resolve the full ntfy endpoint URL from user-provided settings.
+
+    Accepts any of these forms (all equivalent):
+      url="https://ntfy.sh", topic="hermeece"  → https://ntfy.sh/hermeece
+      url="ntfy.sh", topic="hermeece"          → https://ntfy.sh/hermeece
+      url="https://ntfy.sh/hermeece", topic="" → https://ntfy.sh/hermeece
+      url="ntfy.sh/hermeece", topic=""         → https://ntfy.sh/hermeece
+
+    Returns None if neither url nor topic is set, or if url is empty.
+    """
+    if not url:
+        return None
+    url = url.strip()
+    if not url:
+        return None
+
+    # Add scheme if missing.
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    # If the URL already has a path component (topic in URL), use it as-is.
+    # Otherwise, append the topic.
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.path and parsed.path != "/":
+        # Topic is already in the URL — use the URL as the full endpoint.
+        return url.rstrip("/")
+
+    # No path — need a separate topic.
+    if not topic or not topic.strip():
+        return None
+    return f"{url.rstrip('/')}/{topic.strip()}"
+
+
 async def send(
     *,
     url: str,
@@ -60,8 +95,11 @@ async def send(
     """Send a notification via ntfy.
 
     Args:
-        url: The ntfy server URL (e.g. "https://ntfy.sh").
-        topic: The topic to publish to (e.g. "hermeece").
+        url: The ntfy server URL. Can be:
+             - Just the server: "https://ntfy.sh" (with separate topic)
+             - Server + topic combined: "https://ntfy.sh/hermeece"
+             - Without scheme: "ntfy.sh" or "ntfy.sh/hermeece"
+        topic: The topic to publish to. Optional if topic is in the URL.
         title: Notification title.
         message: Notification body.
         priority: 1-5 (1=min, 3=default, 5=max).
@@ -69,10 +107,9 @@ async def send(
 
     Returns True on success, False on failure (logged but never raised).
     """
-    if not url or not topic:
+    endpoint = _resolve_endpoint(url, topic)
+    if not endpoint:
         return False
-
-    endpoint = f"{url.rstrip('/')}/{topic}"
     headers = {
         "Title": title,
         "Priority": str(priority),

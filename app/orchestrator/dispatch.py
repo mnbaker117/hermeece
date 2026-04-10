@@ -45,8 +45,14 @@ from app.clients.base import AddResult, TorrentClient
 from app.filter.gate import Announce, Decision, FilterConfig, evaluate_announce
 from app.mam.grab import GrabResult
 from app.mam.torrent_meta import BencodeError, info_hash
+from app.mam.torrent_info import TorrentInfoError, get_torrent_info
+from app.mam.user_status import UserStatusError, get_user_status
 from app.orchestrator.auto_train import train_author
-from app.orchestrator.download_folders import current_month_folder
+from app.orchestrator.download_folders import (
+    current_month_folder,
+    ensure_folder_exists,
+    translate_path,
+)
 from app.policy.engine import (
     EconomicContext,
     PolicyConfig,
@@ -305,9 +311,11 @@ async def _dispatch_with_decision(
                 except Exception:
                     pass  # best-effort, don't block the grab
 
-        # Filter said allow (or we're injecting). Run the policy engine
-        # to check VIP/freeleech/wedge/ratio economics.
-        eco_ctx = EconomicContext(announce_vip=announce.vip)
+        # Filter said allow (or we're injecting). Build the economic
+        # context for the policy engine. Start with what we already
+        # know from the announce, then enrich with the MAM APIs (both
+        # cached, both fail-safe).
+        eco_ctx = await _build_economic_context(deps, announce)
         policy_decision = evaluate_policy(eco_ctx, deps.policy_config)
 
         if policy_decision.action == "skip":
@@ -464,9 +472,25 @@ async def _dispatch_with_decision(
             )
 
         # Submit path: compute the save path (monthly folder if enabled).
+        # The save_path we send to qBit uses qBit's mount namespace
+        # (e.g. /data/[mam-complete]/[2026-04]). qBit can't auto-create
+        # folders with bracket characters, so we pre-create the folder
+        # using OUR mount namespace (e.g. /downloads/[mam-complete]/...)
+        # before passing the path to qBit.
         save_path = None
         if deps.qbit_download_path and deps.monthly_download_folders:
             save_path = current_month_folder(deps.qbit_download_path)
+            # Translate qBit-namespace path → local-namespace path,
+            # then create the folder so it exists when qBit tries to use it.
+            local_save_path = translate_path(
+                save_path, deps.qbit_path_prefix, deps.local_path_prefix
+            )
+            if not ensure_folder_exists(local_save_path):
+                _log.warning(
+                    "failed to pre-create download folder: %s "
+                    "(qBit path: %s) — submission will likely fail",
+                    local_save_path, save_path,
+                )
 
         add_result = await deps.qbit.add_torrent(
             torrent_bytes,
@@ -525,6 +549,64 @@ async def _dispatch_with_decision(
         )
     finally:
         await db.close()
+
+
+async def _build_economic_context(
+    deps: DispatcherDeps, announce: Announce
+) -> EconomicContext:
+    """Build the EconomicContext for the policy engine.
+
+    Always starts with the announce VIP flag (reliable, free). Then
+    enriches with two MAM API calls if enabled in policy_config:
+
+      1. torrent_info (search by ID) — gives vip/free/fl_vip/personal_fl
+      2. user_status (jsonLoad.php) — gives ratio + wedge balance
+
+    Both are cached and fail-safe — if either errors out, the policy
+    engine just runs with whatever data is available. The announce
+    VIP flag is always present, so the policy never runs blind.
+    """
+    ctx_kwargs: dict = {"announce_vip": announce.vip}
+
+    # Torrent-info lookup (only if the user enabled it AND we have a token).
+    # We always do this if there's a possibility wedge/free/ratio matter.
+    needs_torrent_info = (
+        deps.mam_token
+        and announce.torrent_id
+        and (
+            deps.policy_config.free_only
+            or deps.policy_config.use_wedge
+            or deps.policy_config.ratio_floor > 0
+        )
+    )
+    if needs_torrent_info:
+        try:
+            info = await get_torrent_info(announce.torrent_id, token=deps.mam_token)
+            ctx_kwargs["torrent_vip"] = info.vip
+            ctx_kwargs["torrent_free"] = info.free
+            ctx_kwargs["torrent_fl_vip"] = info.fl_vip
+            ctx_kwargs["personal_freeleech"] = info.personal_freeleech
+        except TorrentInfoError as e:
+            _log.warning("torrent_info lookup failed for tid=%s: %s",
+                         announce.torrent_id, e)
+
+    # User-status lookup (only if the policy actually needs ratio/wedges).
+    needs_user_status = (
+        deps.mam_token
+        and (
+            deps.policy_config.use_wedge
+            or deps.policy_config.ratio_floor > 0
+        )
+    )
+    if needs_user_status:
+        try:
+            status = await get_user_status(token=deps.mam_token)
+            ctx_kwargs["user_ratio"] = status.ratio
+            ctx_kwargs["user_wedges"] = status.wedges
+        except UserStatusError as e:
+            _log.warning("user_status lookup failed: %s", e)
+
+    return EconomicContext(**ctx_kwargs)
 
 
 def _grab_failure_state(result: GrabResult) -> str:

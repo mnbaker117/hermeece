@@ -113,6 +113,39 @@ class TestSend:
         req = _mock_ntfy_client["requests"][0]
         assert str(req.url) == "https://ntfy.example.com/test"
 
+    async def test_url_with_topic_combined(self, _mock_ntfy_client):
+        """User can pass full URL with topic and empty topic param."""
+        await ntfy.send(
+            url="https://ntfy.example.com/my-topic",
+            topic="",
+            title="T",
+            message="M",
+        )
+        req = _mock_ntfy_client["requests"][0]
+        assert str(req.url) == "https://ntfy.example.com/my-topic"
+
+    async def test_url_without_scheme_gets_https(self, _mock_ntfy_client):
+        """User can omit https:// prefix."""
+        await ntfy.send(
+            url="ntfy.sh",
+            topic="my-topic",
+            title="T",
+            message="M",
+        )
+        req = _mock_ntfy_client["requests"][0]
+        assert str(req.url) == "https://ntfy.sh/my-topic"
+
+    async def test_url_no_scheme_with_combined_topic(self, _mock_ntfy_client):
+        """The exact form the user has in their compose."""
+        await ntfy.send(
+            url="ntfy.sh/turtles81-autobrr-books",
+            topic="",
+            title="T",
+            message="M",
+        )
+        req = _mock_ntfy_client["requests"][0]
+        assert str(req.url) == "https://ntfy.sh/turtles81-autobrr-books"
+
 
 class TestConvenienceSenders:
     async def test_notify_grab(self, _mock_ntfy_client):

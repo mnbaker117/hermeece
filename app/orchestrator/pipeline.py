@@ -160,21 +160,73 @@ async def process_completion(
             metadata_language=metadata.language or None,
         )
 
-        # ── Step 4: route to sink ───────────────────────────
+        # ── Step 4: patch metadata into a temp copy ─────────
+        # We never modify the seeding original in the download dir.
+        # We also can't patch the file IN the sink destination because
+        # CWA's inotify watcher would fire on the initial copy and try
+        # to read the file while we're still patching it. The fix:
+        # create a temp directory, copy the original there (preserving
+        # its filename), patch the copy, then deliver the patched file
+        # to the sink. The sink sees a complete file from the start.
+        delivery_source = book_path
+        temp_dir = None
+        if (
+            book_path.exists()
+            and book_path.suffix.lower() == ".epub"
+            and metadata.author
+        ):
+            import shutil
+            import tempfile
+            temp_dir = Path(tempfile.mkdtemp(prefix="hermeece-patch-"))
+            try:
+                # Copy with the original filename preserved.
+                temp_book = temp_dir / book_path.name
+                shutil.copy2(str(book_path), str(temp_book))
+                # Patch the temp copy.
+                authors = [a.strip() for a in metadata.author.split(",") if a.strip()]
+                patched_ok = patch_epub_metadata(
+                    temp_book,
+                    title=metadata.title or None,
+                    authors=authors if authors else None,
+                    series=metadata.series or None,
+                    series_index=metadata.series_index or None,
+                )
+                if patched_ok:
+                    delivery_source = temp_book
+                    _log.info(
+                        "pipeline: patched epub metadata for grab_id=%d",
+                        event.grab_id,
+                    )
+            except Exception:
+                _log.exception(
+                    "pipeline: failed to patch epub for grab_id=%d, "
+                    "delivering original file", event.grab_id,
+                )
+
+        # ── Step 5: route to sink ───────────────────────────
         sink = _pick_sink(
             default_sink, calibre_library_path,
             folder_sink_path, audiobookshelf_library_path,
             cwa_ingest_path,
         )
 
-        if book_path.exists():
-            sink_result = await sink.deliver(str(book_path), metadata)
-        else:
-            sink_result = SinkResult(
-                success=False,
-                sink_name=sink.name,
-                error="no book file to deliver",
-            )
+        try:
+            if delivery_source.exists():
+                sink_result = await sink.deliver(str(delivery_source), metadata)
+            else:
+                sink_result = SinkResult(
+                    success=False,
+                    sink_name=sink.name,
+                    error="no book file to deliver",
+                )
+        finally:
+            # Clean up the temp directory regardless of sink outcome.
+            if temp_dir and temp_dir.exists():
+                try:
+                    import shutil as _sh
+                    _sh.rmtree(str(temp_dir), ignore_errors=True)
+                except Exception:
+                    pass
 
         if not sink_result.success:
             await _fail(db, run_id, event,
@@ -182,25 +234,10 @@ async def process_completion(
                         ntfy_url, ntfy_topic)
             return False
 
-        # Patch the COPY's epub metadata with correct author/title
-        # from the announce. The sink already created a copy (in the
-        # ingest dir or staging), so this modifies the copy — never
-        # the seeding original in the download directory.
-        delivered_path = Path(sink_result.detail) if sink_result.detail else None
-        if (
-            delivered_path
-            and delivered_path.exists()
-            and delivered_path.suffix.lower() == ".epub"
-            and metadata.author
-        ):
-            authors = [a.strip() for a in metadata.author.split(",") if a.strip()]
-            patch_epub_metadata(
-                delivered_path,
-                title=metadata.title or None,
-                authors=authors if authors else None,
-                series=metadata.series or None,
-                series_index=metadata.series_index or None,
-            )
+        # Note: the file in the sink destination has the original
+        # filename (sink uses src.name). For CWA, that means the file
+        # appears in the ingest dir already-patched, no in-place
+        # modification, no inotify race.
 
         await pipe_storage.set_state(
             db, run_id, pipe_storage.PIPE_SUNK,
