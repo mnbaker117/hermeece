@@ -47,7 +47,9 @@ def _make_config(**overrides) -> IrcConfig:
         "initial_backoff_seconds": 0.05,
         "max_backoff_seconds": 0.2,
         "max_reconnect_attempts": 3,
-        "read_timeout_seconds": 5.0,
+        "read_iter_timeout_seconds": 5.0,
+        "keepalive_interval_seconds": 30.0,
+        "dead_connection_seconds": 60.0,
         "handshake_timeout_seconds": 2.0,
     }
     base.update(overrides)
@@ -579,6 +581,173 @@ class TestFatalConfigErrors:
 
             assert "FATAL" in client.last_error
             assert fake_irc.connect_count == 1
+        finally:
+            await client.stop()
+            try:
+                await asyncio.wait_for(task, timeout=1.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+
+
+# ─── Client-initiated keepalive PING ─────────────────────────
+
+
+class TestClientKeepalive:
+    """Validates the read-loop keepalive cadence and the dead-
+    connection deadline. Both pieces exist because the first
+    production smoke test caught Hermeece reconnect-looping every
+    4 minutes during quiet channel periods — the read loop's
+    single-timeout liveness check was firing before MAM IRC sent
+    any traffic. Fix: short per-iteration read timeout + client-
+    initiated PING every keepalive_interval_seconds + a longer
+    dead-connection deadline that uses last-traffic timestamps
+    instead of single-readline timeouts.
+    """
+
+    async def test_quiet_channel_does_NOT_trigger_reconnect(
+        self, fake_irc
+    ):
+        # The bug we're guarding against: connect, no traffic, no
+        # reconnect. Tight timing so the test runs in well under
+        # a second but still proves the loop survives multiple
+        # quiet-period iterations without bailing.
+        config = _make_config(
+            read_iter_timeout_seconds=0.1,
+            keepalive_interval_seconds=0.2,
+            dead_connection_seconds=2.0,
+        )
+        client = IrcClient(config, _Collector(), connect_fn=fake_irc.connect_fn)
+        task = asyncio.create_task(client.run_forever())
+        try:
+            await drive_sasl_handshake(fake_irc, nick=config.nick)
+
+            # Sit on the connection in total silence (no MouseBot
+            # traffic, no server PING). Wait long enough that the
+            # client should send several keepalive PINGs but NOT
+            # long enough to trip dead_connection_seconds.
+            await asyncio.sleep(0.8)
+
+            # The client should still be connected — connect_count
+            # is the alarm bell. If the read loop bailed and
+            # reconnected, this number jumps to 2+.
+            assert fake_irc.connect_count == 1
+            assert client.connected is True
+        finally:
+            await client.stop()
+            try:
+                await asyncio.wait_for(task, timeout=1.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+
+    async def test_keepalive_ping_is_sent_during_silence(
+        self, fake_irc
+    ):
+        # Verify the client actually emits PINGs on the configured
+        # cadence. Pin the line shape down so a future refactor
+        # can't drop the keepalive accidentally.
+        config = _make_config(
+            read_iter_timeout_seconds=0.05,
+            keepalive_interval_seconds=0.1,
+            dead_connection_seconds=10.0,
+        )
+        client = IrcClient(config, _Collector(), connect_fn=fake_irc.connect_fn)
+        task = asyncio.create_task(client.run_forever())
+        try:
+            await drive_sasl_handshake(fake_irc, nick=config.nick)
+            fake_irc.clear_writes()
+
+            # Wait for at least one keepalive interval to elapse +
+            # a margin. The client should have sent a PING by now.
+            await asyncio.sleep(0.3)
+
+            written = fake_irc.written_lines()
+            ping_lines = [
+                line for line in written
+                if line.startswith("PING")
+            ]
+            assert len(ping_lines) >= 1, (
+                f"expected at least one keepalive PING, "
+                f"got writes: {written}"
+            )
+            # The keepalive token is `hermeece-keepalive` so the
+            # server-side PONG response is recognizable in real
+            # production logs as ours vs. somebody else's PING.
+            assert any(
+                "hermeece-keepalive" in line for line in ping_lines
+            )
+        finally:
+            await client.stop()
+            try:
+                await asyncio.wait_for(task, timeout=1.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+
+    async def test_pong_to_our_keepalive_resets_liveness_clock(
+        self, fake_irc
+    ):
+        # The client should treat any inbound traffic — including
+        # PONG replies to its own PINGs — as proof the connection
+        # is alive, refreshing the dead-connection clock. Without
+        # this, the dead-connection deadline would still fire even
+        # though we're getting healthy keepalive responses.
+        config = _make_config(
+            read_iter_timeout_seconds=0.05,
+            keepalive_interval_seconds=0.1,
+            dead_connection_seconds=0.6,
+        )
+        client = IrcClient(config, _Collector(), connect_fn=fake_irc.connect_fn)
+        task = asyncio.create_task(client.run_forever())
+        try:
+            await drive_sasl_handshake(fake_irc, nick=config.nick)
+
+            # Drive ~3 keepalive cycles, replying with a PONG to
+            # each one. If the dead-connection clock is being
+            # reset by the PONGs, the loop survives. If it's not,
+            # the 0.6s deadline fires and we reconnect.
+            for _ in range(5):
+                await fake_irc.wait_for_line("PING :hermeece-keepalive")
+                fake_irc.feed_line(":server PONG server :hermeece-keepalive")
+                await asyncio.sleep(0.05)
+
+            # Still on the original connection
+            assert fake_irc.connect_count == 1
+        finally:
+            await client.stop()
+            try:
+                await asyncio.wait_for(task, timeout=1.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+
+    async def test_dead_connection_deadline_fires_after_silence(
+        self, fake_irc
+    ):
+        # The OPPOSITE of the previous test: if NOTHING comes back
+        # from the server (not even PONGs to our PINGs), the dead-
+        # connection deadline should fire and trigger a reconnect.
+        # Critically: it should fire on the deadline, NOT on the
+        # short read iteration timeout.
+        config = _make_config(
+            read_iter_timeout_seconds=0.05,
+            keepalive_interval_seconds=0.1,
+            dead_connection_seconds=0.4,
+            initial_backoff_seconds=0.05,
+        )
+        client = IrcClient(config, _Collector(), connect_fn=fake_irc.connect_fn)
+        task = asyncio.create_task(client.run_forever())
+        try:
+            await drive_sasl_handshake(fake_irc, nick=config.nick)
+            initial_count = fake_irc.connect_count
+            assert initial_count == 1
+
+            # Eat the keepalive PINGs without responding. Wait
+            # past the dead-connection deadline.
+            await asyncio.sleep(0.8)
+
+            # Should have reconnected at least once due to the
+            # dead-connection deadline firing.
+            assert fake_irc.connect_count >= 2
+            assert "no server traffic" in client.last_error.lower() or \
+                   "ConnectionError" in client.last_error
         finally:
             await client.stop()
             try:

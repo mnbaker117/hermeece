@@ -103,11 +103,34 @@ class IrcConfig:
     max_backoff_seconds: float = 600.0
     max_reconnect_attempts: int = 25
 
-    # 4 minutes — if we don't see ANY traffic from the server in this
-    # window the connection is presumed dead and we cycle through
-    # reconnect. The server should be sending PINGs at least every
-    # ~2 minutes, so 4 is a generous lower bound.
-    read_timeout_seconds: float = 240.0
+    # The read loop now uses a short per-iteration timeout (so we
+    # can wake up periodically and send client-side keepalives) plus
+    # a longer "actual dead connection" deadline based on how long
+    # it's been since we saw ANY server traffic. The 4-minute MAM IRC
+    # PING interval mentioned in earlier docs turned out to be wrong
+    # in practice: in production we observed MAM IRC going 4+ minutes
+    # without sending us anything during quiet periods, which would
+    # silently kill our connection if we relied on a single read
+    # timeout for liveness.
+    #
+    # `read_iter_timeout_seconds` is how long each individual readline
+    # waits before checking the keepalive timer. Short = responsive,
+    # but no shorter than necessary because every wakeup is wasted CPU.
+    read_iter_timeout_seconds: float = 30.0
+
+    # `keepalive_interval_seconds` is how often Hermeece sends a
+    # client-initiated PING to the server during silence. Standard
+    # IRC bot practice is ~60s. The server will reply with PONG, which
+    # both refreshes our `last_traffic_at` clock and keeps the server
+    # from idle-disconnecting US.
+    keepalive_interval_seconds: float = 60.0
+
+    # `dead_connection_seconds` is the actual liveness deadline. If
+    # we go this long without ANY server traffic (including PONGs to
+    # our keepalives), we treat the connection as dead and reconnect.
+    # 600s = 10 minutes — well past the 60s keepalive cadence so any
+    # genuine network drop will fire this within ~9-10 minutes max.
+    dead_connection_seconds: float = 600.0
 
     # Per-handshake-step timeout. If SASL auth or channel join hangs
     # this long, we abort and reconnect.
@@ -558,27 +581,108 @@ class IrcClient:
     async def _read_loop(self) -> None:
         """Run until the connection drops or stop is signaled.
 
-        Handles PING transparently. Routes PRIVMSGs in our channel
-        from the configured announcer nick through `parse_announce`
-        and dispatches results to the user callback. Everything else
-        is dropped silently.
+        Two timing layers in play:
+
+          - **Per-iteration `readline()` timeout** (short, ~30s) so
+            we wake up frequently to check whether it's time to send
+            a client-side keepalive PING.
+
+          - **Cumulative liveness deadline** based on
+            `last_traffic_at` (long, ~10 minutes) — if we haven't
+            seen ANY server traffic in this window (not even PONGs
+            to our keepalives), the connection is dead and we
+            reconnect.
+
+        Why client-initiated keepalives matter:
+        Some MAM IRC servers + quiet channels can go several
+        minutes without sending anything. Without our own PING
+        every 60s, those quiet windows would trip a dumb single-
+        timer read timeout and trigger an unnecessary reconnect
+        BEFORE the channel even ramps up to its normal traffic
+        rate. The first production smoke test caught us in exactly
+        this loop: connect → handshake → JOIN → 4 minutes silence
+        → reconnect → repeat → never receive a single announce.
+
+        Handles PING/PONG transparently. Routes PRIVMSGs in our
+        channel from the configured announcer nick through
+        `parse_announce` and dispatches results to the user
+        callback. Everything else is dropped silently.
         """
+        last_traffic_at = time.monotonic()
+        last_keepalive_at = time.monotonic()
+        keepalive_pending = False  # True between sending PING and seeing any reply
+
         while not self._stop.is_set():
-            line = await self._read_line(
-                timeout=self.config.read_timeout_seconds
-            )
+            now = time.monotonic()
+
+            # Liveness deadline: have we seen ANYTHING from the
+            # server in dead_connection_seconds? If not, treat the
+            # connection as dead and let run_forever reconnect.
+            since_traffic = now - last_traffic_at
+            if since_traffic > self.config.dead_connection_seconds:
+                _log.warning(
+                    f"IRC connection appears dead "
+                    f"({since_traffic:.0f}s since last server traffic, "
+                    f"keepalive_pending={keepalive_pending}); "
+                    f"forcing reconnect"
+                )
+                raise ConnectionError(
+                    f"no server traffic for {since_traffic:.0f}s"
+                )
+
+            # Keepalive cadence: send a client-initiated PING every
+            # keepalive_interval_seconds to make sure the server
+            # knows we're alive AND to give us something to receive
+            # (the PONG reply) so quiet channels don't look like
+            # dead connections.
+            since_keepalive = now - last_keepalive_at
+            if since_keepalive > self.config.keepalive_interval_seconds:
+                try:
+                    await self._send("PING :hermeece-keepalive")
+                except Exception as e:
+                    _log.warning(f"IRC keepalive PING failed: {e}")
+                    raise ConnectionError(
+                        f"keepalive PING send failed: {e}"
+                    )
+                last_keepalive_at = now
+                keepalive_pending = True
+
+            # Short read with per-iteration timeout. On timeout we
+            # just loop back to the keepalive check above — that's
+            # the whole reason this timeout is short.
+            try:
+                line = await self._read_line(
+                    timeout=self.config.read_iter_timeout_seconds
+                )
+            except asyncio.TimeoutError:
+                continue
+
             if line is None:
                 _log.info("IRC server closed the connection")
                 return
+
+            # Any received bytes counts as traffic for the liveness
+            # clock — including the line we're about to process.
+            last_traffic_at = time.monotonic()
+            keepalive_pending = False
 
             msg = parse_irc_line(line)
             if msg is None:
                 continue
 
             if msg.command == "PING":
+                # Server pinged us. Reply with PONG. The PING token
+                # we got is whatever the server wants echoed back.
                 await self._send(
                     f"PONG :{msg.trailing or (msg.params[0] if msg.params else '')}"
                 )
+                continue
+
+            if msg.command == "PONG":
+                # Either a reply to our keepalive PING or a stray
+                # server PONG. Either way, the receipt has already
+                # refreshed `last_traffic_at` above; nothing else
+                # to do.
                 continue
 
             if msg.command == "PRIVMSG":

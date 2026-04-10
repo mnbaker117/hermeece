@@ -148,7 +148,9 @@ class TestEndToEndPipeline:
             initial_backoff_seconds=0.05,
             max_backoff_seconds=0.2,
             max_reconnect_attempts=1,
-            read_timeout_seconds=5.0,
+            read_iter_timeout_seconds=5.0,
+            keepalive_interval_seconds=30.0,
+            dead_connection_seconds=60.0,
             handshake_timeout_seconds=2.0,
         )
         client = IrcClient(config, on_announce, connect_fn=fake_irc.connect_fn)
