@@ -45,6 +45,7 @@ from app.clients.base import AddResult, TorrentClient
 from app.filter.gate import Announce, Decision, FilterConfig, evaluate_announce
 from app.mam.grab import GrabResult
 from app.mam.torrent_meta import BencodeError, info_hash
+from app.orchestrator.auto_train import train_author
 from app.orchestrator.download_folders import current_month_folder
 from app.policy.engine import (
     EconomicContext,
@@ -281,6 +282,21 @@ async def _dispatch_with_decision(
                 reason=filter_decision.reason,
                 announce_id=announce_id,
             )
+
+        # Co-author auto-train: if the filter allowed this announce
+        # because one co-author matched, add the unknown co-authors
+        # to the allow list too. They're collaborating with a known-
+        # good author, so they're likely relevant to the user's taste.
+        if (
+            filter_decision.reason == "allowed_author"
+            and filter_decision.all_authors
+            and not skip_filter
+        ):
+            for raw_author in filter_decision.all_authors:
+                try:
+                    await train_author(db, raw_author, source="coauthor_train")
+                except Exception:
+                    pass  # best-effort, don't block the grab
 
         # Filter said allow (or we're injecting). Run the policy engine
         # to check VIP/freeleech/wedge/ratio economics.
