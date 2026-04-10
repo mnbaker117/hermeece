@@ -212,6 +212,10 @@ DEFAULT_SETTINGS = {
     "category_routing": {},  # {"audiobooks fantasy": "folder", ...}
     "folder_sink_path": "",  # for folder sink
     "audiobookshelf_library_path": "",  # for audiobookshelf sink
+    # CWA (Calibre-Web-Automated) ingest directory. CWA watches this
+    # folder and auto-imports any book files dropped here. Safest
+    # Calibre integration — no direct metadata.db writes.
+    "cwa_ingest_path": "",
 
     # ── Calibre integration ─────────────────────────────────
     "calibre_library_path": "",

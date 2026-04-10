@@ -35,6 +35,7 @@ from app.orchestrator.file_copier import copy_to_staging, find_book_files
 from app.sinks.base import SinkResult
 from app.sinks.audiobookshelf import AudiobookshelfSink
 from app.sinks.calibre import CalibreSink
+from app.sinks.cwa import CWASink
 from app.sinks.folder import FolderSink
 from app.storage import grabs as grabs_storage
 from app.storage import pipeline as pipe_storage
@@ -51,6 +52,7 @@ async def process_completion(
     calibre_library_path: str,
     folder_sink_path: str,
     audiobookshelf_library_path: str = "",
+    cwa_ingest_path: str = "",
     category_routing: dict[str, str] = None,
     ntfy_url: str,
     ntfy_topic: str,
@@ -161,6 +163,7 @@ async def process_completion(
         sink = _pick_sink(
             default_sink, calibre_library_path,
             folder_sink_path, audiobookshelf_library_path,
+            cwa_ingest_path,
         )
 
         if book_path.exists():
@@ -236,10 +239,13 @@ def _pick_sink(
     calibre_library_path: str,
     folder_sink_path: str,
     audiobookshelf_library_path: str,
+    cwa_ingest_path: str,
 ):
     """Pick the right sink based on the default_sink setting."""
     if default_sink == "calibre":
         return CalibreSink(calibre_library_path)
+    if default_sink == "cwa":
+        return CWASink(cwa_ingest_path)
     if default_sink == "audiobookshelf":
         return AudiobookshelfSink(audiobookshelf_library_path)
     return FolderSink(folder_sink_path)

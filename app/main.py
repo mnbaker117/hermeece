@@ -137,6 +137,7 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
         calibre_library_path=settings.get("calibre_library_path", ""),
         folder_sink_path=settings.get("folder_sink_path", ""),
         audiobookshelf_library_path=settings.get("audiobookshelf_library_path", ""),
+        cwa_ingest_path=settings.get("cwa_ingest_path", ""),
         category_routing=settings.get("category_routing", {}),
         ntfy_url=settings.get("ntfy_url", ""),
         ntfy_topic=settings.get("ntfy_topic", "hermeece"),

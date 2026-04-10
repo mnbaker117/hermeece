@@ -131,6 +131,7 @@ async def _tick_inner(deps: DispatcherDeps, db) -> TickResult:
                         calibre_library_path=deps.calibre_library_path,
                         folder_sink_path=deps.folder_sink_path,
                         audiobookshelf_library_path=deps.audiobookshelf_library_path,
+                        cwa_ingest_path=deps.cwa_ingest_path,
                         category_routing=deps.category_routing,
                         ntfy_url=deps.ntfy_url,
                         ntfy_topic=deps.ntfy_topic,

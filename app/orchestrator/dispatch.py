@@ -131,6 +131,7 @@ class DispatcherDeps:
     calibre_library_path: str = ""
     folder_sink_path: str = ""
     audiobookshelf_library_path: str = ""
+    cwa_ingest_path: str = ""
     category_routing: dict = field(default_factory=dict)
     ntfy_url: str = ""
     ntfy_topic: str = "hermeece"
