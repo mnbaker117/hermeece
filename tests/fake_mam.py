@@ -72,6 +72,15 @@ class FakeMAM:
 
     The `requests` list captures every intercepted request in order so
     tests can assert on URLs, headers (Cookie), method, and content.
+
+    **Cookie rotation simulation.** Real MAM rotates the `mam_id`
+    cookie on every API call by sending a new value in a `Set-Cookie`
+    response header. Tests exercise this by setting
+    `rotate_cookie_to` — every response produced by the fake from
+    that point on will include a `Set-Cookie: mam_id=<value>` header,
+    letting tests verify Hermeece captures and persists the new
+    value. Set to None (the default) to disable rotation and keep
+    responses cookie-free.
     """
 
     search: _EndpointConfig = field(
@@ -99,6 +108,11 @@ class FakeMAM:
         )
     )
 
+    # If set, every response produced by the fake includes a
+    # `Set-Cookie: mam_id=<value>` header. Tests use this to
+    # simulate MAM's automatic cookie rotation.
+    rotate_cookie_to: Optional[str] = None
+
     requests: list[httpx.Request] = field(default_factory=list)
 
     def _handler(self, request: httpx.Request) -> httpx.Response:
@@ -118,10 +132,24 @@ class FakeMAM:
                 headers={"content-type": "text/plain"},
             )
 
+        # Merge rotation cookie header into the response headers.
+        # Using httpx's `headers=` list-of-tuples form so we can
+        # add `set-cookie` alongside whatever the endpoint config
+        # already sets (content-type, etc.) — httpx allows the
+        # same header name multiple times this way.
+        response_headers = list(cfg.headers.items())
+        if self.rotate_cookie_to is not None:
+            response_headers.append(
+                (
+                    "set-cookie",
+                    f"mam_id={self.rotate_cookie_to}; Path=/; HttpOnly",
+                )
+            )
+
         return httpx.Response(
             cfg.status,
             content=cfg.body,
-            headers=cfg.headers,
+            headers=response_headers,
         )
 
     def transport(self) -> httpx.MockTransport:

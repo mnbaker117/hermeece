@@ -46,7 +46,7 @@ from typing import Literal, Optional
 import httpx
 
 from app.mam.announce import build_download_url
-from app.mam.cookie import build_headers, get_client
+from app.mam.cookie import _do_get
 
 _log = logging.getLogger("hermeece.mam.grab")
 
@@ -122,9 +122,12 @@ async def fetch_torrent(torrent_id: str, token: str, timeout: int = 30) -> GrabR
     url = build_download_url(torrent_id)
 
     try:
-        resp = await get_client().get(
-            url, headers=build_headers(token), timeout=timeout
-        )
+        # Route through cookie._do_get so the cookie auto-rotation
+        # handler fires on every response. If MAM sent back a fresh
+        # mam_id in the Set-Cookie header, the in-memory token and
+        # (eventually) settings.json both get updated before this
+        # function returns to its caller.
+        resp = await _do_get(url, token=token, timeout=timeout)
     except (httpx.TimeoutException, httpx.NetworkError) as e:
         _log.warning(f"grab transport error for tid={torrent_id}: {type(e).__name__}: {e}")
         return GrabResult(

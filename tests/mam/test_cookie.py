@@ -12,8 +12,14 @@ Three layers:
      attaching the right `mam_id` cookie to outgoing requests.
 """
 from app.mam.cookie import (
+    _do_get,
+    _extract_mam_id_from_response,
+    _handle_response_cookie,
     build_headers,
+    get_current_token,
     register_ip,
+    set_current_token,
+    set_rotation_callback,
     validate,
     verify_session,
 )
@@ -189,3 +195,268 @@ class TestValidate:
         result = await validate("", skip_ip_update=True)
         assert result["success"] is False
         assert len(fake_mam.requests) == 0
+
+
+# ─── Cookie auto-rotation ────────────────────────────────────
+
+
+class TestExtractMamId:
+    """The Set-Cookie parser is the bedrock of the rotation feature.
+    Pin down its behavior on every shape MAM is known to send (or
+    has been observed to send by other clients) so a future
+    refactor doesn't silently regress."""
+
+    def _make_response(self, headers: list) -> object:
+        """Build a real httpx.Response with a bound request.
+
+        httpx's `.cookies` accessor lazily walks the request URL when
+        deciding which Set-Cookie headers apply, so a Response built
+        without a request raises on `.cookies` access. The bound
+        request only needs a URL — none of the rest of the request
+        machinery is touched by the cookie jar walk.
+        """
+        import httpx as _httpx
+
+        request = _httpx.Request(
+            "GET", "https://www.myanonamouse.net/tor/js/loadSearchJSONbasic.php"
+        )
+        return _httpx.Response(
+            200, headers=headers, content=b"x", request=request
+        )
+
+    def test_extracts_from_jar(self):
+        # The most common path: httpx parses the Set-Cookie into
+        # its own cookies dict and we read it from there.
+        resp = self._make_response(
+            [("set-cookie", "mam_id=NEW_VALUE_123; Path=/; HttpOnly")]
+        )
+        assert _extract_mam_id_from_response(resp) == "NEW_VALUE_123"
+
+    def test_returns_none_when_no_cookie(self):
+        resp = self._make_response([("content-type", "text/plain")])
+        assert _extract_mam_id_from_response(resp) is None
+
+    def test_extracts_unrelated_cookies_returns_none(self):
+        # Some other cookie set, but not mam_id.
+        resp = self._make_response(
+            [("set-cookie", "csrftoken=ABC; Path=/")]
+        )
+        assert _extract_mam_id_from_response(resp) is None
+
+    def test_returns_first_mam_id_when_multiple(self):
+        # Pathological case: MAM somehow sets two mam_id cookies.
+        # The httpx jar will pick one (last-write-wins per RFC), and
+        # we just trust whichever it picked.
+        resp = self._make_response(
+            [
+                ("set-cookie", "mam_id=FIRST; Path=/"),
+                ("set-cookie", "mam_id=SECOND; Path=/"),
+            ]
+        )
+        # Either is acceptable as long as we return SOMETHING.
+        result = _extract_mam_id_from_response(resp)
+        assert result in ("FIRST", "SECOND")
+
+
+class TestHandleResponseCookie:
+    """The handler that runs on every MAM response. Verifies it
+    correctly updates _current_token and fires the registered
+    callback exactly when expected (cookie changed) and never
+    when not expected (no cookie / unchanged cookie)."""
+
+    async def test_no_cookie_in_response_does_nothing(self, fake_mam):
+        set_current_token("original_value")
+        callback_calls: list[str] = []
+
+        async def cb(new_token: str) -> None:
+            callback_calls.append(new_token)
+
+        set_rotation_callback(cb)
+        try:
+            # Drive a real round-trip with no rotation configured
+            # on the fake — the response will not include Set-Cookie.
+            await _do_get(
+                "https://www.myanonamouse.net/tor/js/loadSearchJSONbasic.php"
+            )
+            assert get_current_token() == "original_value"
+            assert callback_calls == []
+        finally:
+            set_rotation_callback(None)
+            set_current_token("")
+
+    async def test_new_cookie_updates_in_memory_and_fires_callback(
+        self, fake_mam
+    ):
+        set_current_token("original_value")
+        callback_calls: list[str] = []
+
+        async def cb(new_token: str) -> None:
+            callback_calls.append(new_token)
+
+        set_rotation_callback(cb)
+        fake_mam.rotate_cookie_to = "rotated_value_42"
+        try:
+            await _do_get(
+                "https://www.myanonamouse.net/tor/js/loadSearchJSONbasic.php"
+            )
+            assert get_current_token() == "rotated_value_42"
+            assert callback_calls == ["rotated_value_42"]
+        finally:
+            set_rotation_callback(None)
+            set_current_token("")
+
+    async def test_same_cookie_does_not_fire_callback(self, fake_mam):
+        # MAM occasionally sends back the same value (within the
+        # debounce window or for cached responses). Don't fire the
+        # callback for no-op rotations.
+        set_current_token("steady_value")
+        callback_calls: list[str] = []
+
+        async def cb(new_token: str) -> None:
+            callback_calls.append(new_token)
+
+        set_rotation_callback(cb)
+        fake_mam.rotate_cookie_to = "steady_value"
+        try:
+            await _do_get(
+                "https://www.myanonamouse.net/tor/js/loadSearchJSONbasic.php"
+            )
+            assert get_current_token() == "steady_value"
+            assert callback_calls == []
+        finally:
+            set_rotation_callback(None)
+            set_current_token("")
+
+    async def test_rotation_uses_explicit_token_when_supplied(
+        self, fake_mam
+    ):
+        # Explicit token argument should win over the in-memory one
+        # for the request itself, but rotation still updates the
+        # in-memory token because that's the shared state.
+        set_current_token("in_memory_token")
+        fake_mam.rotate_cookie_to = "after_rotation"
+        try:
+            await _do_get(
+                "https://www.myanonamouse.net/tor/js/loadSearchJSONbasic.php",
+                token="explicit_call_token",
+            )
+            # The OUTGOING request should have used the explicit token
+            assert "explicit_call_token" in fake_mam.cookies_seen()
+            # The IN-MEMORY token should have been updated by rotation
+            assert get_current_token() == "after_rotation"
+        finally:
+            set_current_token("")
+
+    async def test_callback_exception_does_not_break_request(
+        self, fake_mam
+    ):
+        # If the rotation callback raises (e.g. disk full when
+        # writing settings.json), the original MAM request must
+        # still succeed and the in-memory token must still update.
+        set_current_token("before")
+
+        async def bad_cb(new_token: str) -> None:
+            raise RuntimeError("simulated persistence failure")
+
+        set_rotation_callback(bad_cb)
+        fake_mam.rotate_cookie_to = "after"
+        try:
+            response = await _do_get(
+                "https://www.myanonamouse.net/tor/js/loadSearchJSONbasic.php"
+            )
+            assert response.status_code == 200
+            assert get_current_token() == "after"
+        finally:
+            set_rotation_callback(None)
+            set_current_token("")
+
+    async def test_chained_requests_rotate_each_time(self, fake_mam):
+        # The realistic production pattern: Hermeece does many MAM
+        # calls, each one returns a fresh cookie, the in-memory state
+        # tracks them all. Simulate by changing rotate_cookie_to
+        # between calls.
+        set_current_token("initial")
+        try:
+            fake_mam.rotate_cookie_to = "after_call_1"
+            await _do_get(
+                "https://www.myanonamouse.net/tor/js/loadSearchJSONbasic.php"
+            )
+            assert get_current_token() == "after_call_1"
+
+            fake_mam.rotate_cookie_to = "after_call_2"
+            await _do_get(
+                "https://www.myanonamouse.net/tor/js/loadSearchJSONbasic.php"
+            )
+            assert get_current_token() == "after_call_2"
+
+            fake_mam.rotate_cookie_to = "after_call_3"
+            await _do_get(
+                "https://www.myanonamouse.net/tor/js/loadSearchJSONbasic.php"
+            )
+            assert get_current_token() == "after_call_3"
+
+            # Each request used the COOKIE FROM THE PREVIOUS
+            # ROTATION (not the original one). This is the
+            # critical assertion that proves rotation actually
+            # threads through to the next request.
+            seen = fake_mam.cookies_seen()
+            assert seen[0] == "initial"
+            assert seen[1] == "after_call_1"
+            assert seen[2] == "after_call_2"
+        finally:
+            set_current_token("")
+
+
+class TestRotationOnGrabPath:
+    """The .torrent download endpoint is the most common rotation
+    trigger in production — every successful grab gets a fresh
+    cookie. This class verifies the grab path threads through
+    cookie._do_get correctly so rotation fires there too."""
+
+    async def test_successful_grab_rotates_cookie(self, fake_mam):
+        from app.mam.grab import fetch_torrent
+
+        set_current_token("before_grab")
+        callback_calls: list[str] = []
+
+        async def cb(new_token: str) -> None:
+            callback_calls.append(new_token)
+
+        set_rotation_callback(cb)
+        fake_mam.rotate_cookie_to = "after_grab"
+        try:
+            result = await fetch_torrent("12345", token="before_grab")
+            assert result.success is True
+            assert get_current_token() == "after_grab"
+            assert callback_calls == ["after_grab"]
+        finally:
+            set_rotation_callback(None)
+            set_current_token("")
+
+    async def test_failed_grab_still_rotates_if_cookie_present(
+        self, fake_mam
+    ):
+        # Pathological-but-real case: MAM serves an HTML login page
+        # (cookie expired) AND sets a fresh cookie in the same
+        # response. We should still capture the new cookie even
+        # though the body sniffer marks the grab as failed —
+        # the rotation might be MAM's offer of a recovery cookie,
+        # and a future grab attempt might succeed with it.
+        from app.mam.grab import fetch_torrent
+
+        set_current_token("expired")
+        fake_mam.download.body = HTML_LOGIN_PAGE
+        fake_mam.download.headers = {"content-type": "text/html"}
+        fake_mam.rotate_cookie_to = "recovery"
+        try:
+            result = await fetch_torrent("12345", token="expired")
+            # The grab itself should fail (HTML body)
+            assert result.success is False
+            assert result.failure_kind == "cookie_expired"
+            # But the rotation should still have captured the new
+            # cookie. This is defensive — we don't know for sure
+            # if MAM actually does this, but if they do, we want
+            # to take advantage of the recovery path.
+            assert get_current_token() == "recovery"
+        finally:
+            set_current_token("")

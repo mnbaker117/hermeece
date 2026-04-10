@@ -20,16 +20,26 @@ exception in one doesn't take down the other.
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import FastAPI
 
 from app import state
 from app.clients.qbittorrent import QbitClient
-from app.config import ENV_VERBOSE_LOGGING, apply_logging, load_settings
+from app.config import (
+    ENV_VERBOSE_LOGGING,
+    apply_logging,
+    load_settings,
+    save_settings,
+)
 from app.database import get_db, init_db
 from app.filter.gate import Announce, FilterConfig
 from app.filter.normalize import normalize_category
-from app.mam.cookie import aclose_session
+from app.mam.cookie import (
+    aclose_session,
+    set_current_token,
+    set_rotation_callback,
+)
 from app.mam.grab import fetch_torrent
 from app.mam.irc import IrcClient, IrcConfig
 from app.orchestrator.budget_watcher import run_loop as budget_watcher_loop
@@ -87,6 +97,70 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
     )
 
 
+# ─── Debounced cookie-rotation persistence ───────────────────
+#
+# MAM rotates the session cookie on every API call. If Hermeece is
+# running hot (several inject calls + a budget-watcher poll every
+# 60s + any IRC-triggered grabs), that could mean a few
+# settings.json writes per minute. Debounce so we only flush to disk
+# at most every `_ROTATION_PERSIST_DEBOUNCE_SECONDS` — the in-memory
+# token is always current; the only thing at stake is whether a
+# hard container crash would lose up to 60s of rotation progress.
+# Even the worst case is harmless: on restart we use the slightly
+# older cookie from settings.json, immediately get a fresh one on
+# the first MAM call, and we're back in sync.
+_ROTATION_PERSIST_DEBOUNCE_SECONDS = 60.0
+_rotation_pending_token: Optional[str] = None
+_rotation_persist_task: Optional[asyncio.Task] = None
+
+
+async def _rotation_callback(new_token: str) -> None:
+    """Persist the rotated cookie to settings.json, debounced.
+
+    Called by `app.mam.cookie._handle_response_cookie` on every
+    successful rotation. We stash the new token and (re)schedule a
+    background task to flush it to disk after the debounce window.
+    Multiple rotations within the window collapse into a single
+    disk write of whichever token was seen last.
+    """
+    global _rotation_pending_token, _rotation_persist_task
+    _rotation_pending_token = new_token
+
+    # Cancel any existing pending flush so the debounce timer
+    # resets — the most recent rotation wins, and we don't want a
+    # stale token hitting disk while a fresher one is already in
+    # memory.
+    if _rotation_persist_task is not None and not _rotation_persist_task.done():
+        _rotation_persist_task.cancel()
+
+    _rotation_persist_task = asyncio.create_task(
+        _debounced_persist_rotation()
+    )
+
+
+async def _debounced_persist_rotation() -> None:
+    """Wait out the debounce window, then write the latest token."""
+    try:
+        await asyncio.sleep(_ROTATION_PERSIST_DEBOUNCE_SECONDS)
+    except asyncio.CancelledError:
+        return  # superseded by a newer rotation; nothing to do
+
+    token = _rotation_pending_token
+    if not token:
+        return
+
+    try:
+        settings = load_settings()
+        if settings.get("mam_session_id") == token:
+            return  # already on disk (someone else wrote it)
+        settings = dict(settings)
+        settings["mam_session_id"] = token
+        save_settings(settings)
+        _log.info("MAM session cookie persisted to settings.json")
+    except Exception:
+        _log.exception("failed to persist rotated MAM cookie to settings.json")
+
+
 def _build_irc_config(settings: dict) -> IrcConfig:
     """Construct an IrcConfig from a settings snapshot.
 
@@ -115,6 +189,14 @@ async def lifespan(app: FastAPI):
     _log.info("Hermeece starting")
     await init_db()
     _log.info("Database initialized")
+
+    # Seed the MAM cookie rotation layer with whatever's in
+    # settings.json right now. Every subsequent MAM API call will
+    # update this in-memory value automatically, and the debounced
+    # rotation callback writes changes back to disk.
+    set_current_token(settings.get("mam_session_id", ""))
+    set_rotation_callback(_rotation_callback)
+    _log.info("MAM cookie rotation handler wired")
 
     state.dispatcher = _build_dispatcher(settings)
     _log.info("Dispatcher initialized")
@@ -190,6 +272,40 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         _log.info("Hermeece shutting down")
+
+        # Stop accepting new rotation notifications. Any request
+        # in flight right now might still try to fire the callback
+        # between now and when its response lands, and we don't
+        # want that racing against the settings.json flush below
+        # or the disk teardown.
+        set_rotation_callback(None)
+
+        # If there's a pending debounced rotation waiting to write,
+        # either flush it immediately or cancel the timer — we do
+        # both: cancel the timer so it doesn't sleep for 60s during
+        # an otherwise-fast shutdown, then write the pending token
+        # synchronously. This guarantees we never lose the most
+        # recent cookie to a shutdown.
+        global _rotation_persist_task
+        if _rotation_persist_task is not None and not _rotation_persist_task.done():
+            _rotation_persist_task.cancel()
+            try:
+                await _rotation_persist_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            _rotation_persist_task = None
+        if _rotation_pending_token:
+            try:
+                current = load_settings()
+                if current.get("mam_session_id") != _rotation_pending_token:
+                    merged = dict(current)
+                    merged["mam_session_id"] = _rotation_pending_token
+                    save_settings(merged)
+                    _log.info(
+                        "Flushed pending MAM cookie rotation during shutdown"
+                    )
+            except Exception:
+                _log.exception("error flushing pending cookie rotation on shutdown")
 
         # Stop the IRC listener cleanly first so its run_forever
         # loop sees the stop signal and breaks out of any backoff

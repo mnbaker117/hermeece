@@ -35,7 +35,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Optional
+import re
+from typing import Awaitable, Callable, Optional
 
 import httpx
 
@@ -74,6 +75,154 @@ _AUTH_PROBE_PAYLOAD = json.dumps(
         "perpage": 5,
     }
 )
+
+
+# ─── Cookie auto-rotation state ──────────────────────────────
+#
+# MAM's backend dynamically rotates the `mam_id` cookie on every API
+# call: each response carries a `Set-Cookie: mam_id=<new_value>`
+# header. Clients that persist the new value get indefinite session
+# lifetime (as long as they make at least one API call within a 15-day
+# window); clients that ignore the new value keep using their original
+# cookie and eventually hit MAM's max-age ceiling (~30 days in
+# practice). Autobrr does the latter, which is why users historically
+# have to rotate cookies manually every ~90 days. Hermeece does it
+# properly.
+#
+# Design:
+#
+#   - `_current_token` holds the most recently seen cookie value. It's
+#     seeded from settings.json at startup via `set_current_token()`
+#     and then updates automatically on every response.
+#   - `_rotation_callback` is a user-supplied callable (set via
+#     `set_rotation_callback()`) that gets awaited every time the
+#     token changes. The lifespan wires this to a debounced
+#     save_settings() call so persistence doesn't hammer the disk but
+#     the saved value stays reasonably fresh.
+#   - `_extract_mam_id_from_set_cookie()` parses the response's
+#     `Set-Cookie` header(s) — note httpx exposes them via
+#     `response.cookies` which is usually simpler, but we also keep a
+#     regex fallback for the case where the jar normalization drops
+#     attributes we care about.
+#
+# The rotation is INTENTIONALLY inline in `_do_get`/`_do_post` rather
+# than in an httpx event hook. The hook API fires after httpx's own
+# cookie jar has already merged the response cookies, which means we'd
+# be racing against whatever the jar decided to do. Inline means we
+# see the raw header on the response object exactly as MAM sent it.
+
+_current_token: Optional[str] = None
+_rotation_callback: Optional[
+    Callable[[str], Awaitable[None]]
+] = None
+
+# Regex fallback for extracting mam_id from a raw Set-Cookie string.
+# httpx's response.cookies dict is the preferred path (it handles all
+# the RFC 6265 edge cases), but if MAM ever sends something the jar
+# doesn't recognize, this catches `mam_id=<value>` followed by either
+# `;`, whitespace, or end-of-string.
+_MAM_ID_RX = re.compile(r"mam_id=([^;\s]+)")
+
+
+def set_current_token(token: str) -> None:
+    """Seed the in-memory current token, usually from settings.json.
+
+    Called by `main.py`'s lifespan right after `load_settings()`. Any
+    subsequent `_do_get`/`_do_post` call that doesn't pass an explicit
+    token will use this value, and successful responses will update
+    it automatically via `_handle_response_cookie()`.
+    """
+    global _current_token
+    _current_token = token
+
+
+def get_current_token() -> str:
+    """Return the most recently seen MAM session cookie.
+
+    Returns empty string if nothing has been set yet. Used by
+    `main.py`'s dispatcher rebuild and by tests that need to verify
+    rotation captured the expected new value.
+    """
+    return _current_token or ""
+
+
+def set_rotation_callback(
+    callback: Optional[Callable[[str], Awaitable[None]]],
+) -> None:
+    """Register an async function to be invoked on every cookie rotation.
+
+    The callback is called with the new token string. Exceptions raised
+    from the callback are logged but swallowed — rotation notification
+    failures must not prevent the request that produced the new cookie
+    from returning cleanly to its caller. Pass None to clear the
+    callback (used by the lifespan on shutdown).
+    """
+    global _rotation_callback
+    _rotation_callback = callback
+
+
+def _extract_mam_id_from_response(response: httpx.Response) -> Optional[str]:
+    """Pull the new mam_id value out of a MAM response, or None.
+
+    Prefers httpx's parsed `response.cookies` dict; falls back to a
+    regex against the raw `Set-Cookie` header. Returns None if neither
+    path finds a new value.
+    """
+    # Primary path: httpx already parsed the Set-Cookie header into
+    # its cookie jar. The value there is the authoritative decoded
+    # form of what MAM sent.
+    jar_value = response.cookies.get("mam_id")
+    if jar_value:
+        return jar_value
+
+    # Fallback path: walk the raw Set-Cookie headers ourselves. This
+    # catches the case where httpx's jar-normalization layer decides
+    # not to accept the cookie (wrong domain attribute, mismatched
+    # secure flag, etc.) but MAM clearly meant to set it.
+    for header_name, header_value in response.headers.items():
+        if header_name.lower() != "set-cookie":
+            continue
+        match = _MAM_ID_RX.search(header_value)
+        if match:
+            return match.group(1)
+    return None
+
+
+async def _handle_response_cookie(response: httpx.Response) -> None:
+    """Check a MAM HTTP response for a rotated cookie and apply it.
+
+    Called from `_do_get` and `_do_post` after every successful
+    request. Compares the new value (if any) to `_current_token`; if
+    they differ, updates the in-memory state and fires the rotation
+    callback. Logs at INFO during Phase 1 (Loud mode) so we can watch
+    rotation working in production logs during the smoke test; the
+    log level should drop to DEBUG in Phase 3 once we're confident
+    the mechanism is reliable.
+    """
+    global _current_token
+    new_token = _extract_mam_id_from_response(response)
+    if not new_token:
+        return
+    if new_token == _current_token:
+        return  # no-op: MAM sent back the same cookie (rare but valid)
+
+    old_preview = (_current_token or "")[:8] + "..." if _current_token else "<unset>"
+    new_preview = new_token[:8] + "..."
+    _log.info(
+        f"MAM rotated session cookie ({old_preview} → {new_preview}); persisting"
+    )
+    _current_token = new_token
+
+    # Fire the rotation callback. Failures here must not propagate —
+    # the MAM request that produced this rotation already succeeded,
+    # and a callback error (e.g. disk full for settings.json) should
+    # never make the caller see the request as failed.
+    callback = _rotation_callback
+    if callback is not None:
+        try:
+            await callback(new_token)
+        except Exception:
+            _log.exception("rotation callback raised; cookie is still updated in-memory")
 
 
 # ─── HTTP layer ──────────────────────────────────────────────
@@ -133,15 +282,45 @@ async def aclose_session() -> None:
             _client = None
 
 
-async def _do_get(url: str, token: str, timeout: int = 15) -> httpx.Response:
-    """Async GET to a MAM endpoint with the standard auth header set."""
-    return await get_client().get(
-        url, headers=build_headers(token), timeout=timeout
+def _resolve_token(explicit: Optional[str]) -> str:
+    """Pick the token to use for a request.
+
+    If the caller passed an explicit token (validation probe, test
+    fixture, etc.), use that. Otherwise fall back to the module-level
+    `_current_token` which is kept fresh by the rotation handler.
+    Empty string is returned if neither is set — callers are expected
+    to treat that as "no auth" and let MAM reject the request.
+    """
+    if explicit:
+        return explicit
+    return _current_token or ""
+
+
+async def _do_get(
+    url: str, token: Optional[str] = None, timeout: int = 15
+) -> httpx.Response:
+    """Async GET to a MAM endpoint with the standard auth header set.
+
+    Automatically rotates the in-memory token if the response carries
+    a new `mam_id` cookie — see `_handle_response_cookie`. The rotation
+    fires BEFORE the response is returned to the caller so that if the
+    caller immediately uses the rotated token for another request
+    (e.g. a grab followed by a validation check), it sees the fresh
+    value.
+    """
+    effective_token = _resolve_token(token)
+    response = await get_client().get(
+        url, headers=build_headers(effective_token), timeout=timeout
     )
+    await _handle_response_cookie(response)
+    return response
 
 
 async def _do_post(
-    url: str, token: str, payload: str, timeout: int = 20
+    url: str,
+    token: Optional[str] = None,
+    payload: str = "",
+    timeout: int = 20,
 ) -> httpx.Response:
     """Async POST to a MAM endpoint with the standard auth header set.
 
@@ -152,10 +331,19 @@ async def _do_post(
     happily accepts the request and returns HTTP 200 with a zero-byte
     body, which looks exactly like an auth failure but isn't. The fix
     (verified the hard way in AthenaScout) is sending exact JSON bytes.
+
+    Automatically rotates the in-memory token if the response carries
+    a new `mam_id` cookie.
     """
-    return await get_client().post(
-        url, headers=build_headers(token), content=payload, timeout=timeout
+    effective_token = _resolve_token(token)
+    response = await get_client().post(
+        url,
+        headers=build_headers(effective_token),
+        content=payload,
+        timeout=timeout,
     )
+    await _handle_response_cookie(response)
+    return response
 
 
 # ─── Validation flow ─────────────────────────────────────────
