@@ -21,8 +21,5 @@ pydantic==2.8.0
 bcrypt==4.2.1
 itsdangerous==2.2.0
 
-# Embedded ebook metadata reading (Phase 2)
-ebooklib==0.18
-
-# Embedded audiobook metadata reading (Phase 2)
+# Audiobook metadata reading (M4B/MP3 tags via mutagen)
 mutagen==1.47.0

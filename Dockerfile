@@ -1,10 +1,9 @@
-# Hermeece Docker image — Phase 1 production build.
+# Hermeece Docker image — Phase 2 production build.
 #
-# Phase 1 ships without calibre-bin bundled because the post-download
-# pipeline (calibredb add) lands in Phase 2. The image stays small
-# (~150MB) and boots fast. Phase 2 will add the calibre-bin layer
-# behind a build arg so users who only want the IRC → qBit pipeline
-# can keep the slim image.
+# Includes calibre CLI tools (~500MB) for the post-download pipeline
+# (calibredb add). The calibredb binary talks directly to a Calibre
+# library directory mounted as a volume — it does NOT need the
+# Calibre GUI or content server running.
 
 FROM python:3.12-slim
 
@@ -18,11 +17,13 @@ WORKDIR /app
 
 # OS deps:
 #   - sqlite3: ad-hoc DB inspection during ops debugging
-#     (`docker compose exec hermeece sqlite3 /app/data/hermeece.db ...`).
-#     ~1MB extra; the convenience pays for itself the first time
-#     you need to look at a `grabs` row in production.
+#   - calibre: provides calibredb CLI for the post-download pipeline.
+#     ~500MB but needed for Phase 2 Calibre sink integration.
+#   - wget, xdg-utils: calibre installer dependencies
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends sqlite3 \
+    && apt-get install -y --no-install-recommends \
+        sqlite3 \
+        calibre \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python runtime dependencies first so the layer cache stays
@@ -36,10 +37,9 @@ RUN pip install -r requirements.txt
 COPY app ./app
 COPY pyproject.toml ./
 
-# Mount target for the data dir (settings.json, hermeece.db). Make
-# sure /app/data exists at image build time so the first boot under
-# a non-mounted setup still works.
-RUN mkdir -p /app/data
+# Mount targets. /app/data for settings.json + hermeece.db, /calibre
+# for the Calibre library, /staging for the post-download staging area.
+RUN mkdir -p /app/data /calibre /staging
 VOLUME ["/app/data"]
 
 # WebUI port — NOT 8787 (that's AthenaScout). 8788 is Hermeece's
