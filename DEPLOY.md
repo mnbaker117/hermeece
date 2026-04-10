@@ -11,8 +11,9 @@ production checks.
   - `irc.myanonamouse.net` on TCP/6697 (TLS)
   - Your qBittorrent WebUI (typically a LAN address)
   - `www.myanonamouse.net` for `.torrent` downloads
-- A NickServ-registered bot nick on MAM IRC (the same one you use
-  with Autobrr is fine)
+- A NickServ-registered MAM SASL account (Hermeece authenticates
+  against the *account*, not the nick — see "Coexistence with
+  Autobrr" below if you're running both)
 - A valid `mam_id` session cookie from MAM → Preferences → Security
 - qBittorrent WebUI credentials and a category configured
   (`[mam-reseed]` by default — must match exactly, brackets included)
@@ -243,6 +244,69 @@ caused us so much grief in Autobrr.
 If all four tests pass, Hermeece is production-ready for Phase 1.
 The next pieces — author allow list management, post-download
 ingest into Calibre, the React UI — land in Phases 2 and 3.
+
+## Findings from the first production smoke test
+
+These are quirks observed when validating Hermeece against real MAM
+on 2026-04-09. Documented here so future deploys don't trip over
+the same surprises.
+
+### MAM auto-rotates the session cookie
+
+Every API call to MAM returns a new `mam_id` value in the
+`Set-Cookie` response header. Hermeece captures this automatically
+and persists it back to `settings.json` (debounced 60s). As long as
+Hermeece makes at least one MAM API call within a 15-day window,
+the cookie stays valid indefinitely. The historical "MAM cookie
+expires every 90 days" pain that Autobrr users hit is a CLIENT bug
+in Autobrr — it ignores MAM's rotation header. Hermeece does not.
+
+The cookie keep-alive background loop fires every 168 hours (7 days,
+configurable via `cookie_keepalive_interval_hours`) so the rotation
+has SOMETHING to chew on even during long quiet periods. You should
+never need to manually update the MAM cookie in `settings.json`
+unless something genuinely breaks.
+
+### MAM trusts the source IP heavily
+
+When Hermeece's WAN IP matches the IP-locked session, MAM is
+remarkably permissive about the cookie value itself — even an
+obviously corrupt string can produce successful responses with the
+server issuing a fresh cookie alongside. This means **the
+`failed_cookie_expired` failure path is hard to trigger from a
+trusted IP in production**, even though it's exhaustively unit-
+tested. Don't be alarmed if you can't reproduce a "cookie expired"
+condition manually — Hermeece's failure detection works correctly
+in the unit tests; you just won't be able to easily make MAM
+return one in real life unless your IP changes or you explicitly
+revoke the session in MAM's Security UI.
+
+### qBit duplicate detection
+
+qBittorrent's `/api/v2/torrents/add` endpoint returns HTTP 200
+with body literally `Fails.` when the torrent is already in the
+client (duplicate hash). Hermeece classifies this as
+`duplicate_in_qbit` — it's neither a real success (we wanted to
+add it but didn't) nor a real failure (qBit has the torrent,
+which is what we wanted). Surfaced as `ok=false action=submit
+reason=qbit_failed:duplicate` from the inject endpoint.
+
+## Coexistence with Autobrr
+
+If you're running Autobrr alongside Hermeece during a transition
+period, **give them different IRC nicks** even though they share
+the same NickServ/SASL account. MAM IRC SASL authenticates against
+the account, not the nick, so the same `Turtles81` account can hold
+two separate IRC nicks (`Turtles81_arrbot` for Autobrr,
+`Turtles81_hermeece` for Hermeece) simultaneously. If both clients
+try to claim the same nick, the second one to connect gets a
+`433 Nickname is already in use` from MAM IRC, which Hermeece
+detects as a fatal config error and stops the listener entirely
+(by design — reconnecting wouldn't fix it).
+
+Set `mam_irc_nick` in `settings.json` to a unique value before
+starting Hermeece. The default suggestion if you're running
+alongside Autobrr is `<account>_hermeece`.
 
 ## Stopping and updating
 
