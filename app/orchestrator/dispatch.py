@@ -45,6 +45,12 @@ from app.clients.base import AddResult, TorrentClient
 from app.filter.gate import Announce, Decision, FilterConfig, evaluate_announce
 from app.mam.grab import GrabResult
 from app.mam.torrent_meta import BencodeError, info_hash
+from app.orchestrator.download_folders import current_month_folder
+from app.policy.engine import (
+    EconomicContext,
+    PolicyConfig,
+    evaluate_policy,
+)
 from app.rate_limit import decide_grab_action
 from app.rate_limit import ledger as ledger_mod
 from app.rate_limit import queue as queue_mod
@@ -83,7 +89,7 @@ class DispatcherDeps:
     one of these fields.
     """
 
-    # Read-only knobs
+    # Read-only knobs (required — no defaults)
     filter_config: FilterConfig
     mam_token: str
     qbit_category: str
@@ -92,18 +98,36 @@ class DispatcherDeps:
     queue_mode_enabled: bool
     seed_seconds_required: int
 
-    # Behavior
+    # Behavior (required)
     db_factory: _DbProvider
     fetch_torrent: GrabFetchFn
     qbit: TorrentClient
 
+    # ── Fields with defaults below this line ────────────────
+
+    # Dry-run mode: run filter + policy but never fetch or submit.
+    dry_run: bool = False
+
+    # Policy engine config. Defaults to permissive (grab everything).
+    policy_config: PolicyConfig = field(default_factory=PolicyConfig)
+
     # Tag list to apply to every torrent Hermeece submits to qBit.
-    # Default empty list = no tagging. Production wires this from
-    # settings.json `qbit_tag` (default "hermeece-seed") so the
-    # user's existing manual-seed / autobrr-seed / hermeece-seed
-    # tag taxonomy stays consistent. Defaulted to empty in the
-    # dataclass so existing tests don't have to opt in.
     qbit_tags: list[str] = field(default_factory=list)
+
+    # Download folder organization.
+    qbit_download_path: str = ""
+    monthly_download_folders: bool = True
+
+    # Phase 2 pipeline settings.
+    staging_path: str = ""
+    default_sink: str = "calibre"
+    calibre_library_path: str = ""
+    folder_sink_path: str = ""
+    audiobookshelf_library_path: str = ""
+    category_routing: dict = field(default_factory=dict)
+    ntfy_url: str = ""
+    ntfy_topic: str = "hermeece"
+    auto_train_enabled: bool = True
 
     # Optional: an audit hook for tests / future observability.
     on_event: Optional[Callable[[str, dict], None]] = None
@@ -258,8 +282,28 @@ async def _dispatch_with_decision(
                 announce_id=announce_id,
             )
 
-        # Filter said allow (or we're injecting). Consult the rate
-        # limiter — read current budget + queue counters from the DB.
+        # Filter said allow (or we're injecting). Run the policy engine
+        # to check VIP/freeleech/wedge/ratio economics.
+        eco_ctx = EconomicContext(announce_vip=announce.vip)
+        policy_decision = evaluate_policy(eco_ctx, deps.policy_config)
+
+        if policy_decision.action == "skip":
+            _emit(
+                deps,
+                "policy_skip",
+                {
+                    "torrent_id": announce.torrent_id,
+                    "tier": policy_decision.tier,
+                },
+            )
+            return DispatchResult(
+                action="skip",
+                reason=f"policy:{policy_decision.tier}",
+                announce_id=announce_id,
+            )
+
+        # Policy said grab. Consult the rate limiter — read current
+        # budget + queue counters from the DB.
         budget_used = await ledger_mod.count_active(db)
         queue_size = await queue_mod.size(db)
 
@@ -276,6 +320,29 @@ async def _dispatch_with_decision(
             return DispatchResult(
                 action="drop",
                 reason=rate_decision.reason,
+                announce_id=announce_id,
+            )
+
+        # Dry-run gate: filter + policy + rate-limit all ran normally,
+        # but we stop here without fetching or submitting anything.
+        # The audit row is already written, so dry-run logs show
+        # exactly what WOULD have happened.
+        if deps.dry_run:
+            _log.info(
+                "DRY RUN: would %s tid=%s %s (policy=%s)",
+                rate_decision.action,
+                announce.torrent_id,
+                announce.torrent_name,
+                policy_decision.tier,
+            )
+            _emit(deps, "dry_run_skip", {
+                "torrent_id": announce.torrent_id,
+                "would_action": rate_decision.action,
+                "policy_tier": policy_decision.tier,
+            })
+            return DispatchResult(
+                action="skip",
+                reason=f"dry_run:would_{rate_decision.action}",
                 announce_id=announce_id,
             )
 
@@ -296,7 +363,8 @@ async def _dispatch_with_decision(
         )
 
         fetch_result = await deps.fetch_torrent(
-            announce.torrent_id, deps.mam_token
+            announce.torrent_id, deps.mam_token,
+            use_fl_wedge=policy_decision.use_wedge,
         )
 
         if not fetch_result.success:
@@ -372,10 +440,15 @@ async def _dispatch_with_decision(
                 qbit_hash=qbit_hash,
             )
 
-        # Submit path: hand the bytes to qBit.
+        # Submit path: compute the save path (monthly folder if enabled).
+        save_path = None
+        if deps.qbit_download_path and deps.monthly_download_folders:
+            save_path = current_month_folder(deps.qbit_download_path)
+
         add_result = await deps.qbit.add_torrent(
             torrent_bytes,
             category=deps.qbit_category,
+            save_path=save_path,
             tags=deps.qbit_tags or None,
         )
 

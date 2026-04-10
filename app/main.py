@@ -34,7 +34,8 @@ from app.config import (
 )
 from app.database import get_db, init_db
 from app.filter.gate import Announce, FilterConfig
-from app.filter.normalize import normalize_category
+from app.filter.normalize import extract_format, normalize_category
+from app.policy.engine import PolicyConfig
 from app.mam.cookie import (
     aclose_session,
     set_current_token,
@@ -44,6 +45,7 @@ from app.mam.grab import fetch_torrent
 from app.mam.irc import IrcClient, IrcConfig
 from app.orchestrator.budget_watcher import run_loop as budget_watcher_loop
 from app.orchestrator.cookie_keepalive import run_loop as cookie_keepalive_loop
+from app.orchestrator.cookie_retry import run_loop as cookie_retry_loop
 from app.orchestrator.dispatch import DispatcherDeps, handle_announce
 from app.routers.inject import router as inject_router
 
@@ -70,6 +72,20 @@ def _build_filter_config(settings: dict) -> FilterConfig:
         allowed_categories=frozenset(
             normalize_category(c) for c in settings.get("allowed_categories", [])
         ),
+        excluded_categories=frozenset(
+            normalize_category(c) for c in settings.get("excluded_categories", [])
+        ),
+        allowed_formats=frozenset(
+            extract_format(f) or normalize_category(f)
+            for f in settings.get("allowed_formats", [])
+        ),
+        excluded_formats=frozenset(
+            extract_format(f) or normalize_category(f)
+            for f in settings.get("excluded_formats", [])
+        ),
+        allowed_languages=frozenset(
+            lang.strip().lower() for lang in settings.get("allowed_languages", [])
+        ),
         allowed_authors=frozenset(),
         ignored_authors=frozenset(),
     )
@@ -91,6 +107,14 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
     qbit_tags = [t.strip() for t in raw_tag.split(",") if t.strip()]
     return DispatcherDeps(
         filter_config=_build_filter_config(settings),
+        policy_config=PolicyConfig(
+            vip_only=bool(settings.get("policy_vip_only", False)),
+            free_only=bool(settings.get("policy_free_only", False)),
+            vip_always_grab=bool(settings.get("policy_vip_always_grab", True)),
+            use_wedge=bool(settings.get("policy_use_wedge", False)),
+            min_wedges_reserved=int(settings.get("policy_min_wedges_reserved", 0)),
+            ratio_floor=float(settings.get("policy_ratio_floor", 0.0)),
+        ),
         mam_token=settings.get("mam_session_id", ""),
         qbit_category=settings.get("qbit_watch_category", "[mam-reseed]"),
         qbit_tags=qbit_tags,
@@ -103,6 +127,17 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
         db_factory=get_db,
         fetch_torrent=fetch_torrent,
         qbit=qbit,
+        dry_run=bool(settings.get("dry_run", False)),
+        qbit_download_path=settings.get("qbit_download_path", ""),
+        monthly_download_folders=bool(settings.get("monthly_download_folders", True)),
+        staging_path=settings.get("staging_path", ""),
+        default_sink=settings.get("default_sink", "calibre"),
+        calibre_library_path=settings.get("calibre_library_path", ""),
+        folder_sink_path=settings.get("folder_sink_path", ""),
+        audiobookshelf_library_path=settings.get("audiobookshelf_library_path", ""),
+        category_routing=settings.get("category_routing", {}),
+        ntfy_url=settings.get("ntfy_url", ""),
+        ntfy_topic=settings.get("ntfy_topic", "hermeece"),
     )
 
 
@@ -299,6 +334,24 @@ async def lifespan(app: FastAPI):
     else:
         _log.info("Cookie keep-alive disabled (mam_session_id not configured)")
 
+    # Cookie retry: re-attempts grabs stuck in failed_cookie_expired.
+    # Runs on a 5-minute interval (configurable). Auto-disabled if
+    # neither MAM cookie nor qBit is configured (nothing to retry with).
+    if settings.get("mam_session_id") and settings.get("qbit_url"):
+        retry_seconds = float(
+            settings.get("cookie_retry_interval_seconds", 300)
+        )
+
+        async def _cookie_retry_loop_factory():
+            await cookie_retry_loop(deps_for_loops, interval_seconds=retry_seconds)
+
+        state._cookie_retry_task = state.supervised_task(
+            _cookie_retry_loop_factory, name="cookie-retry"
+        )
+        _log.info(f"Cookie retry loop started (interval={retry_seconds}s)")
+    else:
+        _log.info("Cookie retry loop disabled (mam_session_id or qbit_url not configured)")
+
     # Phase 3 wiring lands here:
     #   - APScheduler with cookie_check / weekly_audit / daily_digest jobs
 
@@ -354,7 +407,7 @@ async def lifespan(app: FastAPI):
         # coroutines with restart-on-crash logic, so we need to
         # cancel the wrapper task itself — the inner coroutine sees
         # CancelledError and unwinds cleanly.
-        for task_attr in ("_irc_task", "_budget_watcher_task", "_cookie_keepalive_task"):
+        for task_attr in ("_irc_task", "_budget_watcher_task", "_cookie_keepalive_task", "_cookie_retry_task"):
             task = getattr(state, task_attr, None)
             if task is not None and not task.done():
                 task.cancel()

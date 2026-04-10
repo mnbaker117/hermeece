@@ -45,6 +45,17 @@ from app.mam.announce import parse_announce
 _log = logging.getLogger("hermeece.mam.irc")
 
 
+class _NickInUse(Exception):
+    """Internal: raised by _expect when 433 is received and nick_suffix_max > 0.
+
+    The handshake catches this and retries with a suffixed nick.
+    """
+
+    def __init__(self, attempted_nick: str, message: str = ""):
+        self.attempted_nick = attempted_nick
+        super().__init__(message or f"nick '{attempted_nick}' in use")
+
+
 class IrcFatalConfigError(Exception):
     """An IRC connection failed in a way that no amount of reconnecting
     will fix — wrong credentials, nick already claimed by another
@@ -135,6 +146,11 @@ class IrcConfig:
     # Per-handshake-step timeout. If SASL auth or channel join hangs
     # this long, we abort and reconnect.
     handshake_timeout_seconds: float = 30.0
+
+    # 433 auto-suffix: when the configured nick is already in use,
+    # try nick_2, nick_3, ... up to this many attempts before giving up.
+    # 0 = fail-fast on first collision (original behavior).
+    nick_suffix_max: int = 3
 
 
 # ─── IRC line parser ─────────────────────────────────────────
@@ -243,6 +259,8 @@ class IrcClient:
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Any = None
         self._stop = asyncio.Event()
+        self._current_nick = config.nick
+        self._nick_attempt = 0
 
         # Status fields (read by app.state mirror + dashboard).
         self.connected = False
@@ -477,13 +495,13 @@ class IrcClient:
             if msg.command == "433":
                 # Real-world example from MAM IRC:
                 #   :irc1.myanonamouse.net 433 * Turtles81_arrbot :Nickname is already in use.
-                # Means another IRC client is currently connected as
-                # this bot nick. Hermeece can NEVER fix this on its
-                # own — it has to be a different nick or the other
-                # client has to disconnect first.
-                attempted = msg.params[1] if len(msg.params) > 1 else self.config.nick
+                attempted = msg.params[1] if len(msg.params) > 1 else self._current_nick
+                if self._nick_attempt < self.config.nick_suffix_max:
+                    # Try a suffixed nick: nick_2, nick_3, etc.
+                    raise _NickInUse(attempted)
                 raise IrcFatalConfigError(
-                    f"IRC nickname '{attempted}' is already in use — "
+                    f"IRC nickname '{attempted}' is already in use "
+                    f"(tried {self._nick_attempt} suffix(es)) — "
                     f"either another client is connected as this nick "
                     f"(check Autobrr, etc.) or pick a different "
                     f"mam_irc_nick in settings.json"
@@ -508,10 +526,22 @@ class IrcClient:
     # ─── Handshake stages ────────────────────────────────────
 
     async def _send_nick_user(self) -> None:
-        await self._send(f"NICK {self.config.nick}")
+        self._current_nick = self.config.nick
+        self._nick_attempt = 0
+        await self._send(f"NICK {self._current_nick}")
         await self._send(
             f"USER {self.config.user} 0 * :{self.config.realname}"
         )
+
+    async def _retry_nick(self) -> None:
+        """Send a suffixed NICK after a 433 collision."""
+        self._nick_attempt += 1
+        self._current_nick = f"{self.config.nick}_{self._nick_attempt + 1}"
+        _log.info(
+            "IRC nick collision, trying suffix: %s (attempt %d/%d)",
+            self._current_nick, self._nick_attempt, self.config.nick_suffix_max,
+        )
+        await self._send(f"NICK {self._current_nick}")
 
     async def _sasl_handshake(self) -> None:
         """IRCv3 SASL PLAIN handshake.
@@ -520,6 +550,10 @@ class IrcClient:
         flow → CAP END. The NICK/USER pair has to be sent BEFORE we
         finish CAP negotiation, or the server will close us with
         "ERROR :Connection registration timed out".
+
+        If a 433 (nick in use) is received and nick_suffix_max > 0,
+        the handshake retries with a suffixed nick (nick_2, nick_3, ...)
+        before giving up.
         """
         await self._send("CAP LS 302")
         await self._expect("CAP")  # CAP * LS :sasl ...
@@ -527,9 +561,16 @@ class IrcClient:
         await self._send("CAP REQ :sasl")
         await self._send_nick_user()
 
-        ack = await self._expect("CAP")  # CAP * ACK :sasl
-        # ack.trailing should contain "sasl" — if it doesn't, SASL was
-        # rejected (or NAK'd) and we should fall back / fail.
+        # The CAP ACK and subsequent steps can receive a 433 at any
+        # point if the nick is already in use. We retry with suffixed
+        # nicks up to nick_suffix_max times.
+        while True:
+            try:
+                ack = await self._expect("CAP")  # CAP * ACK :sasl
+                break
+            except _NickInUse:
+                await self._retry_nick()
+
         if "sasl" not in ack.trailing.lower():
             raise ConnectionError(
                 f"server NAKed SASL: {ack.raw}"
@@ -538,13 +579,10 @@ class IrcClient:
         await self._send("AUTHENTICATE PLAIN")
         await self._expect("AUTHENTICATE")
 
-        # SASL PLAIN payload: base64(authzid \0 authcid \0 password)
-        # authzid empty, authcid = account name, password follows.
         auth_string = f"\0{self.config.account}\0{self.config.password}"
         encoded = base64.b64encode(auth_string.encode("utf-8")).decode("ascii")
         await self._send(f"AUTHENTICATE {encoded}")
 
-        # 903 = SASL successful, 904 = failed, 905 = too long, 906 = aborted
         result = await self._expect("903", "904", "905", "906")
         if result.command != "903":
             raise ConnectionError(
@@ -554,8 +592,17 @@ class IrcClient:
         await self._send("CAP END")
 
     async def _wait_for_welcome(self) -> None:
-        """Wait for the server's 001 numeric (RPL_WELCOME)."""
-        await self._expect("001")
+        """Wait for the server's 001 numeric (RPL_WELCOME).
+
+        A 433 can still arrive here if the nick collision happens
+        after CAP END but before 001.
+        """
+        while True:
+            try:
+                await self._expect("001")
+                return
+            except _NickInUse:
+                await self._retry_nick()
 
     async def _nickserv_identify(self) -> None:
         """Send PRIVMSG NickServ :IDENTIFY <password>.

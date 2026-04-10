@@ -74,7 +74,7 @@ def _make_app() -> FastAPI:
 
 
 def _make_deps(qbit=None, fetch_result=None) -> DispatcherDeps:
-    async def fake_fetch(torrent_id: str, token: str) -> GrabResult:
+    async def fake_fetch(torrent_id: str, token: str, **kwargs) -> GrabResult:
         return fetch_result or GrabResult(
             success=True, torrent_bytes=MINIMAL_BENCODED_TORRENT
         )

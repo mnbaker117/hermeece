@@ -110,12 +110,39 @@ CREATE TABLE IF NOT EXISTS mam_session (
     superseded_at       TEXT
 );
 
+-- Phase 2: post-download pipeline tracking.
+-- One row per grab that has finished downloading and entered the
+-- post-download pipeline. Tracks the file through staging, metadata
+-- review, and sink delivery.
+CREATE TABLE IF NOT EXISTS pipeline_runs (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    grab_id           INTEGER NOT NULL REFERENCES grabs(id) ON DELETE CASCADE,
+    qbit_hash         TEXT,
+    source_path       TEXT,
+    staged_path       TEXT,
+    book_filename     TEXT,
+    book_format       TEXT,
+    metadata_title    TEXT,
+    metadata_author   TEXT,
+    metadata_series   TEXT,
+    metadata_language TEXT,
+    sink_name         TEXT,
+    sink_result       TEXT,
+    state             TEXT NOT NULL,
+    state_updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at      TEXT,
+    error             TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_announces_seen_at ON announces(seen_at);
 CREATE INDEX IF NOT EXISTS idx_announces_decision ON announces(decision);
 CREATE INDEX IF NOT EXISTS idx_grabs_state ON grabs(state);
 CREATE INDEX IF NOT EXISTS idx_grabs_torrent_id ON grabs(mam_torrent_id);
 CREATE INDEX IF NOT EXISTS idx_snatch_ledger_released ON snatch_ledger(released_at);
 CREATE INDEX IF NOT EXISTS idx_pending_queue_priority ON pending_queue(priority, queued_at);
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_state ON pipeline_runs(state);
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_grab_id ON pipeline_runs(grab_id);
 """
 
 

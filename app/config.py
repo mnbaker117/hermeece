@@ -125,6 +125,44 @@ DEFAULT_SETTINGS = {
         "ebooks mixed collections",
         "ebooks young adult",
     ],
+    # Categories to exclude even when the parent format is allowed.
+    # Normalized form. E.g. ["ebooks romance"] to block romance but
+    # keep all other ebook subcategories.
+    "excluded_categories": [],
+    # Format-level gates. The "format" is the MAM category prefix
+    # before " - " (e.g. "ebooks", "audiobooks", "comics graphic novels").
+    # Empty allowed_formats = accept all formats that pass category gate.
+    "allowed_formats": [],
+    "excluded_formats": [],
+    # Language gate. Normalized lowercase. Empty = accept all languages.
+    "allowed_languages": ["english"],
+
+    # ── Grab policy (VIP / freeleech / wedge / ratio) ──────
+    # These settings control the economic decision layer that runs
+    # AFTER the filter gate says "allow" but BEFORE the actual grab.
+    # The policy engine checks whether the torrent is "free" (VIP,
+    # global FL, or wedge-applicable) and whether the user's ratio
+    # can afford the download if it isn't.
+
+    # If true, only grab VIP torrents (download doesn't count).
+    "policy_vip_only": False,
+    # If true, only grab torrents that are free (VIP, global FL,
+    # personal FL, or wedge-applied). Non-free torrents are skipped.
+    "policy_free_only": False,
+    # VIP torrents bypass all other policy checks (ratio, wedge logic).
+    "policy_vip_always_grab": True,
+    # Spend a freeleech wedge to make a non-free torrent free.
+    "policy_use_wedge": False,
+    # Don't spend wedges if the user's wedge count would drop below
+    # this threshold. 0 = spend all wedges freely.
+    "policy_min_wedges_reserved": 0,
+    # Skip non-free torrents if the user's ratio is below this value.
+    # 0 = disable ratio checking (grab regardless of ratio).
+    "policy_ratio_floor": 0.0,
+    # Whether to look up the torrent's VIP/FL status via the MAM
+    # search API when the IRC announce alone isn't enough. Adds one
+    # HTTP round-trip per announce that passes the filter.
+    "policy_lookup_torrent_info": True,
 
     # ── Snatch budget (rate limit) ──────────────────────────
     # MAM caps active snatches. New users get 30, OP currently has 200.
@@ -148,6 +186,14 @@ DEFAULT_SETTINGS = {
     # which client added what is visible at a glance in the qBit
     # WebUI. Empty string disables tagging.
     "qbit_tag": "hermeece-seed",
+    # Base download directory for qBit. When monthly_download_folders is
+    # True, Hermeece creates [YYYY-MM]/ subfolders here and tells qBit
+    # to save each download in the current month's folder.
+    # This should match the path AS SEEN BY QBIT (inside qBit's container
+    # if using Docker). E.g. "/downloads/[mam-complete]".
+    "qbit_download_path": "",
+    # Organize downloads into monthly subfolders ([2026-04]/, [2026-05]/).
+    "monthly_download_folders": True,
     # How often to poll qBit for completed torrents and seedtime updates.
     "qbit_poll_interval_seconds": 60,
 
@@ -156,6 +202,7 @@ DEFAULT_SETTINGS = {
     "default_sink": "calibre",
     "category_routing": {},  # {"audiobooks fantasy": "folder", ...}
     "folder_sink_path": "",  # for folder sink
+    "audiobookshelf_library_path": "",  # for audiobookshelf sink
 
     # ── Calibre integration ─────────────────────────────────
     "calibre_library_path": "",
@@ -185,6 +232,10 @@ DEFAULT_SETTINGS = {
     # before the job fires, the next restart still has ~7-8 days of
     # grace before the cookie would actually expire.
     "cookie_keepalive_interval_hours": 168,
+    # How often to retry grabs that failed with cookie_expired. The job
+    # is a no-op when there are no failed grabs, so this mostly affects
+    # latency between cookie rotation and automatic retry.
+    "cookie_retry_interval_seconds": 300,
     "cookie_check_interval_hours": 6,
     "weekly_audit_day": "sunday",
     "weekly_audit_hour": 3,

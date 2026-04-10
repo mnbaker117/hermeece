@@ -38,7 +38,7 @@ import re
 # Anything outside this charset gets stripped to a space.
 _KEEP_RX = re.compile(r"[^a-z0-9 ',&]")
 _WS_RX = re.compile(r"\s+")
-_PUNCT_TO_SPACE_RX = re.compile(r"[._\-]")
+_PUNCT_TO_SPACE_RX = re.compile(r"[._\-/]")
 
 # Typographic apostrophe / single-quote variants seen in real MAM and
 # Calibre data. All collapse to the ASCII apostrophe before the keep
@@ -80,6 +80,22 @@ def normalize_author(name: str) -> str:
     n = _KEEP_RX.sub("", n)
     n = _WS_RX.sub(" ", n).strip()
     return n
+
+
+def extract_format(category: str) -> str:
+    """Extract and normalize the format prefix from a MAM category string.
+
+    MAM categories follow the pattern "Format - Subcategory":
+      "Ebooks - Fantasy"                → "ebooks"
+      "AudioBooks - Mystery"            → "audiobooks"
+      "Comics/Graphic novels - Fantasy" → "comics graphic novels"
+
+    Returns empty string if the category has no " - " separator.
+    """
+    if not category or " - " not in category:
+        return ""
+    prefix = category.split(" - ", 1)[0]
+    return normalize_category(prefix)
 
 
 def normalize_category(category: str) -> str:

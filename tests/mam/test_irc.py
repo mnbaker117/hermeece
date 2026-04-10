@@ -526,6 +526,7 @@ class TestFatalConfigErrors:
         config = _make_config(
             max_reconnect_attempts=99,  # would be huge if we DID reconnect
             handshake_timeout_seconds=2.0,
+            nick_suffix_max=0,  # fail-fast, no suffix retries
         )
         client = IrcClient(config, _Collector(), connect_fn=fake_irc.connect_fn)
         task = asyncio.create_task(client.run_forever())
@@ -581,6 +582,79 @@ class TestFatalConfigErrors:
 
             assert "FATAL" in client.last_error
             assert fake_irc.connect_count == 1
+        finally:
+            await client.stop()
+            try:
+                await asyncio.wait_for(task, timeout=1.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+
+
+# ─── 433 auto-nick-suffix ────────────────────────────────────
+
+
+class TestNickSuffixRetry:
+    async def test_retries_with_suffix_on_433(self, fake_irc):
+        """When nick_suffix_max > 0, a 433 retries with nick_2, nick_3, etc."""
+        config = _make_config(
+            handshake_timeout_seconds=3.0,
+            nick_suffix_max=2,
+        )
+        client = IrcClient(config, _Collector(), connect_fn=fake_irc.connect_fn)
+        task = asyncio.create_task(client.run_forever())
+        try:
+            await fake_irc.wait_for_line("CAP LS 302")
+            fake_irc.feed_line(":server CAP * LS :sasl")
+            await fake_irc.wait_for_line("CAP REQ :sasl")
+            # Consume the initial NICK + USER sent by _send_nick_user().
+            await fake_irc.wait_for_line("NICK testbot")
+            await fake_irc.wait_for_line("USER")
+            # First 433 — nick "testbot" is in use.
+            fake_irc.feed_line(":server 433 * testbot :Nickname is already in use.")
+            # Server should see a new NICK with suffix.
+            await fake_irc.wait_for_line("NICK testbot_2")
+
+            # Accept the suffixed nick by sending CAP ACK.
+            fake_irc.feed_line(":server CAP * ACK :sasl")
+            await fake_irc.wait_for_line("AUTHENTICATE PLAIN")
+            fake_irc.feed_line(":server AUTHENTICATE +")
+            await fake_irc.wait_for_line("AUTHENTICATE")
+            fake_irc.feed_line(":server 903 * :SASL authentication successful")
+            await fake_irc.wait_for_line("CAP END")
+            fake_irc.feed_line(":server 001 testbot_2 :Welcome")
+            await fake_irc.wait_for_line("JOIN")
+            # Success — the client is connected with the suffixed nick.
+            assert client._current_nick == "testbot_2"
+        finally:
+            await client.stop()
+            try:
+                await asyncio.wait_for(task, timeout=1.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+
+    async def test_exhausts_suffixes_then_fails(self, fake_irc):
+        """After nick_suffix_max retries, gives up with IrcFatalConfigError."""
+        config = _make_config(
+            handshake_timeout_seconds=3.0,
+            nick_suffix_max=1,  # only try nick_2, then give up
+        )
+        client = IrcClient(config, _Collector(), connect_fn=fake_irc.connect_fn)
+        task = asyncio.create_task(client.run_forever())
+        try:
+            await fake_irc.wait_for_line("CAP LS 302")
+            fake_irc.feed_line(":server CAP * LS :sasl")
+            await fake_irc.wait_for_line("CAP REQ :sasl")
+            await fake_irc.wait_for_line("NICK testbot")
+            await fake_irc.wait_for_line("USER")
+            # First 433.
+            fake_irc.feed_line(":server 433 * testbot :Nickname is already in use.")
+            await fake_irc.wait_for_line("NICK testbot_2")
+            # Second 433 — exhausted.
+            fake_irc.feed_line(":server 433 * testbot_2 :Nickname is already in use.")
+
+            await asyncio.wait_for(task, timeout=2.0)
+            assert "FATAL" in client.last_error
+            assert "in use" in client.last_error.lower()
         finally:
             await client.stop()
             try:

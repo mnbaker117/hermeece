@@ -19,7 +19,11 @@ from app.filter.gate import (
     extract_author_blob_from_text,
     split_authors,
 )
-from app.filter.normalize import normalize_author, normalize_category
+from app.filter.normalize import (
+    extract_format,
+    normalize_author,
+    normalize_category,
+)
 
 
 # ─── Helpers ─────────────────────────────────────────────────
@@ -27,6 +31,10 @@ from app.filter.normalize import normalize_author, normalize_category
 
 def make_config(
     categories: list[str] | None = None,
+    excluded_categories: list[str] | None = None,
+    allowed_formats: list[str] | None = None,
+    excluded_formats: list[str] | None = None,
+    allowed_languages: list[str] | None = None,
     allowed: list[str] | None = None,
     ignored: list[str] | None = None,
 ) -> FilterConfig:
@@ -38,6 +46,20 @@ def make_config(
     ]
     return FilterConfig(
         allowed_categories=frozenset(normalize_category(c) for c in cats),
+        excluded_categories=frozenset(
+            normalize_category(c) for c in (excluded_categories or [])
+        ),
+        allowed_formats=frozenset(
+            extract_format(f) or normalize_category(f)
+            for f in (allowed_formats or [])
+        ),
+        excluded_formats=frozenset(
+            extract_format(f) or normalize_category(f)
+            for f in (excluded_formats or [])
+        ),
+        allowed_languages=frozenset(
+            lang.strip().lower() for lang in (allowed_languages or [])
+        ),
         allowed_authors=frozenset(normalize_author(a) for a in (allowed or [])),
         ignored_authors=frozenset(normalize_author(a) for a in (ignored or [])),
     )
@@ -91,6 +113,198 @@ class TestCategoryGate:
         decision = evaluate_announce(announce, config)
         assert decision.action == "skip"
         assert decision.reason == "category_not_allowed"
+
+
+# ─── Format gate ────────────────────────────────────────────
+
+
+class TestFormatGate:
+    def test_allowed_format_passes(self):
+        config = make_config(
+            allowed_formats=["ebooks"],
+            allowed=["Brandon Sanderson"],
+        )
+        announce = make_announce(category="Ebooks - Fantasy")
+        decision = evaluate_announce(announce, config)
+        assert decision.action == "allow"
+
+    def test_disallowed_format_skipped(self):
+        config = make_config(
+            allowed_formats=["audiobooks"],
+            allowed=["Brandon Sanderson"],
+        )
+        announce = make_announce(category="Ebooks - Fantasy")
+        decision = evaluate_announce(announce, config)
+        assert decision.action == "skip"
+        assert decision.reason == "format_not_allowed"
+
+    def test_empty_allowed_formats_accepts_all(self):
+        # No format restriction = all formats pass.
+        config = make_config(allowed=["Brandon Sanderson"])
+        announce = make_announce(category="Comics/Graphic novels - Fantasy")
+        # Category won't be in allowed_categories, but format gate passes.
+        decision = evaluate_announce(announce, config)
+        assert decision.reason != "format_not_allowed"
+
+    def test_excluded_format_skipped(self):
+        config = make_config(
+            excluded_formats=["comics graphic novels"],
+            categories=["Comics/Graphic novels - Fantasy"],
+            allowed=["Brandon Sanderson"],
+        )
+        announce = make_announce(category="Comics/Graphic novels - Fantasy")
+        decision = evaluate_announce(announce, config)
+        assert decision.action == "skip"
+        assert decision.reason == "format_excluded"
+
+    def test_excluded_format_overrides_allowed(self):
+        # If a format is in both allowed AND excluded, exclusion wins.
+        config = make_config(
+            allowed_formats=["ebooks", "audiobooks"],
+            excluded_formats=["audiobooks"],
+            categories=["AudioBooks - Fantasy"],
+            allowed=["Brandon Sanderson"],
+        )
+        announce = make_announce(category="AudioBooks - Fantasy")
+        decision = evaluate_announce(announce, config)
+        assert decision.action == "skip"
+        assert decision.reason == "format_excluded"
+
+    def test_format_normalized_case_insensitive(self):
+        config = make_config(
+            allowed_formats=["EBOOKS"],
+            allowed=["Brandon Sanderson"],
+        )
+        announce = make_announce(category="Ebooks - Fantasy")
+        decision = evaluate_announce(announce, config)
+        assert decision.action == "allow"
+
+    def test_format_runs_before_category(self):
+        # Format gate fires before category gate — a format-level skip
+        # should not produce a category_not_allowed reason.
+        config = make_config(
+            allowed_formats=["audiobooks"],
+            categories=["Ebooks - Fantasy"],
+            allowed=["Brandon Sanderson"],
+        )
+        announce = make_announce(category="Ebooks - Fantasy")
+        decision = evaluate_announce(announce, config)
+        assert decision.action == "skip"
+        assert decision.reason == "format_not_allowed"
+
+
+# ─── Language gate ──────────────────────────────────────────
+
+
+class TestLanguageGate:
+    def test_allowed_language_passes(self):
+        config = make_config(
+            allowed_languages=["english"],
+            allowed=["Brandon Sanderson"],
+        )
+        announce = make_announce(language="English")
+        decision = evaluate_announce(announce, config)
+        assert decision.action == "allow"
+
+    def test_disallowed_language_skipped(self):
+        config = make_config(
+            allowed_languages=["english"],
+            allowed=["Brandon Sanderson"],
+        )
+        announce = make_announce(language="Russian")
+        decision = evaluate_announce(announce, config)
+        assert decision.action == "skip"
+        assert decision.reason == "language_not_allowed"
+
+    def test_empty_allowed_languages_accepts_all(self):
+        config = make_config(allowed=["Brandon Sanderson"])
+        announce = make_announce(language="Spanish")
+        decision = evaluate_announce(announce, config)
+        # Should not be blocked by language.
+        assert decision.reason != "language_not_allowed"
+
+    def test_multiple_languages_allowed(self):
+        config = make_config(
+            allowed_languages=["english", "spanish"],
+            allowed=["Brandon Sanderson"],
+        )
+        announce = make_announce(language="Spanish")
+        decision = evaluate_announce(announce, config)
+        assert decision.action == "allow"
+
+    def test_language_case_insensitive(self):
+        config = make_config(
+            allowed_languages=["english"],
+            allowed=["Brandon Sanderson"],
+        )
+        announce = make_announce(language="ENGLISH")
+        decision = evaluate_announce(announce, config)
+        assert decision.action == "allow"
+
+    def test_empty_language_field_skipped_when_gate_active(self):
+        config = make_config(
+            allowed_languages=["english"],
+            allowed=["Brandon Sanderson"],
+        )
+        announce = make_announce(language="")
+        decision = evaluate_announce(announce, config)
+        assert decision.action == "skip"
+        assert decision.reason == "language_not_allowed"
+
+
+# ─── Category exclusion ─────────────────────────────────────
+
+
+class TestCategoryExclusion:
+    def test_excluded_category_skipped(self):
+        config = make_config(
+            excluded_categories=["Ebooks - Fantasy"],
+            allowed=["Brandon Sanderson"],
+        )
+        announce = make_announce(category="Ebooks - Fantasy")
+        decision = evaluate_announce(announce, config)
+        assert decision.action == "skip"
+        assert decision.reason == "category_excluded"
+
+    def test_non_excluded_category_passes(self):
+        config = make_config(
+            excluded_categories=["Ebooks - Romance"],
+            allowed=["Brandon Sanderson"],
+        )
+        announce = make_announce(category="Ebooks - Fantasy")
+        decision = evaluate_announce(announce, config)
+        assert decision.action == "allow"
+
+    def test_exclusion_overrides_inclusion(self):
+        # Category is in allowed_categories but also in excluded_categories.
+        config = make_config(
+            categories=["Ebooks - Fantasy"],
+            excluded_categories=["Ebooks - Fantasy"],
+            allowed=["Brandon Sanderson"],
+        )
+        announce = make_announce(category="Ebooks - Fantasy")
+        decision = evaluate_announce(announce, config)
+        assert decision.action == "skip"
+        assert decision.reason == "category_excluded"
+
+    def test_format_plus_category_exclusion(self):
+        # "Include all ebooks EXCEPT romance" pattern.
+        config = make_config(
+            allowed_formats=["ebooks"],
+            categories=[
+                "Ebooks - Fantasy",
+                "Ebooks - Romance",
+                "Ebooks - Science Fiction",
+            ],
+            excluded_categories=["Ebooks - Romance"],
+            allowed=["Brandon Sanderson"],
+        )
+        fantasy = make_announce(category="Ebooks - Fantasy")
+        romance = make_announce(category="Ebooks - Romance")
+
+        assert evaluate_announce(fantasy, config).action == "allow"
+        assert evaluate_announce(romance, config).action == "skip"
+        assert evaluate_announce(romance, config).reason == "category_excluded"
 
 
 # ─── Author detection ────────────────────────────────────────

@@ -162,7 +162,7 @@ def parse_announce(line: str) -> Optional[Announce]:
     )
 
 
-def build_download_url(torrent_id: str) -> str:
+def build_download_url(torrent_id: str, *, use_fl_wedge: bool = False) -> str:
     """Construct the .torrent file download URL for a given MAM torrent ID.
 
     Used by the grab path. Kept here next to the parser because the
@@ -173,5 +173,12 @@ def build_download_url(torrent_id: str) -> str:
     `myanonamouse.yaml`) — `/tor/download.php?tid=<id>`. Authentication
     is via the `mam_id` cookie attached as an HTTP header at fetch time;
     the URL itself carries no token.
+
+    When `use_fl_wedge=True`, appends `&fl=1` to spend a freeleech
+    wedge on this torrent, making the download free. The policy engine
+    decides whether to set this flag.
     """
-    return f"https://www.myanonamouse.net/tor/download.php?tid={torrent_id}"
+    url = f"https://www.myanonamouse.net/tor/download.php?tid={torrent_id}"
+    if use_fl_wedge:
+        url += "&fl=1"
+    return url

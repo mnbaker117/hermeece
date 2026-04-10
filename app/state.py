@@ -96,6 +96,11 @@ _budget_watcher_task: Optional[asyncio.Task] = None
 _cookie_keepalive_task: Optional[asyncio.Task] = None
 
 
+# ─── Cookie retry state ────────────────────────────────────
+# Periodically re-attempts grabs stuck in failed_cookie_expired.
+_cookie_retry_task: Optional[asyncio.Task] = None
+
+
 # ─── qBit poller state ──────────────────────────────────────
 _qbit_poll_task: Optional[asyncio.Task] = None
 _qbit_status: Dict[str, Any] = {

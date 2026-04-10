@@ -83,7 +83,13 @@ class GrabResult:
 # ─── The grab ────────────────────────────────────────────────
 
 
-async def fetch_torrent(torrent_id: str, token: str, timeout: int = 30) -> GrabResult:
+async def fetch_torrent(
+    torrent_id: str,
+    token: str,
+    timeout: int = 30,
+    *,
+    use_fl_wedge: bool = False,
+) -> GrabResult:
     """Fetch a single .torrent file from MAM.
 
     Pure I/O — no DB writes, no qBit submission, no logging beyond
@@ -97,6 +103,8 @@ async def fetch_torrent(torrent_id: str, token: str, timeout: int = 30) -> GrabR
                  are tiny so this is generous; we want a clear
                  timeout failure rather than the default httpx
                  30-minute hang on a half-open connection.
+        use_fl_wedge: If True, appends `&fl=1` to spend a freeleech
+                      wedge on this torrent.
 
     Returns:
         A `GrabResult` describing success or the specific failure
@@ -119,7 +127,7 @@ async def fetch_torrent(torrent_id: str, token: str, timeout: int = 30) -> GrabR
             failure_detail="no MAM session cookie configured",
         )
 
-    url = build_download_url(torrent_id)
+    url = build_download_url(torrent_id, use_fl_wedge=use_fl_wedge)
 
     try:
         # Route through cookie._do_get so the cookie auto-rotation

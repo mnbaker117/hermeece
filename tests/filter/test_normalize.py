@@ -8,7 +8,7 @@ cause silent mismatches across the whole pipeline. The tests below
 pin the behavior down — anything that breaks them needs to be a
 deliberate decision, not an accident.
 """
-from app.filter.normalize import normalize_author, normalize_category
+from app.filter.normalize import extract_format, normalize_author, normalize_category
 
 
 class TestNormalizeAuthor:
@@ -113,3 +113,27 @@ class TestNormalizeCategory:
         # but the word order stays as written — that's the property
         # this test pins down.
         assert normalize_category("Ebooks, Fantasy") == "ebooks, fantasy"
+
+
+class TestExtractFormat:
+    def test_ebooks(self):
+        assert extract_format("Ebooks - Fantasy") == "ebooks"
+
+    def test_audiobooks(self):
+        assert extract_format("AudioBooks - Mystery") == "audiobooks"
+
+    def test_comics(self):
+        assert extract_format("Comics/Graphic novels - Fantasy") == "comics graphic novels"
+
+    def test_no_separator(self):
+        assert extract_format("Ebooks") == ""
+
+    def test_empty(self):
+        assert extract_format("") == ""
+
+    def test_case_normalized(self):
+        assert extract_format("EBOOKS - FANTASY") == "ebooks"
+
+    def test_multiple_dashes(self):
+        # Only splits on the first " - ".
+        assert extract_format("Ebooks - Science - Fiction") == "ebooks"

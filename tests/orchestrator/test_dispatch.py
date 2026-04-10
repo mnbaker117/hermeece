@@ -88,7 +88,7 @@ def _make_fetch(result: GrabResult):
     """Build a fetch_torrent fake that returns a fixed result."""
     calls: list[tuple[str, str]] = []
 
-    async def fake_fetch(torrent_id: str, token: str) -> GrabResult:
+    async def fake_fetch(torrent_id: str, token: str, **kwargs) -> GrabResult:
         calls.append((torrent_id, token))
         return result
 
@@ -598,3 +598,63 @@ class TestEventHook:
 
         result = await handle_announce(deps, _make_announce())
         assert result.action == "submit"  # dispatch still completed
+
+
+# ─── Dry-run mode ───────────────────────────────────────────
+
+
+class TestDryRun:
+    async def test_dry_run_skips_fetch(self, temp_db):
+        """Dry-run mode runs filter + policy but never calls fetch_torrent."""
+        fetch = _make_fetch(
+            GrabResult(success=True, torrent_bytes=MINIMAL_BENCODED_TORRENT)
+        )
+        deps = _make_deps(
+            filter_config=_make_filter_config(allowed=["Brandon Sanderson"]),
+            fetch_result=GrabResult(
+                success=True, torrent_bytes=MINIMAL_BENCODED_TORRENT
+            ),
+        )
+        deps.dry_run = True
+        deps.fetch_torrent = fetch
+
+        result = await handle_announce(deps, _make_announce())
+
+        assert result.action == "skip"
+        assert "dry_run" in result.reason
+        # fetch_torrent should never have been called.
+        assert len(fetch.calls) == 0
+
+    async def test_dry_run_still_writes_audit_row(self, temp_db):
+        """Dry-run still records the announce for audit purposes."""
+        deps = _make_deps(
+            filter_config=_make_filter_config(allowed=["Brandon Sanderson"]),
+        )
+        deps.dry_run = True
+
+        result = await handle_announce(deps, _make_announce())
+
+        assert result.announce_id > 0
+
+    async def test_dry_run_filter_skip_still_works(self, temp_db):
+        """If the filter skips, dry-run doesn't change the behavior."""
+        deps = _make_deps(
+            filter_config=_make_filter_config(allowed=["Nobody"]),
+        )
+        deps.dry_run = True
+
+        result = await handle_announce(deps, _make_announce())
+
+        assert result.action == "skip"
+        assert "dry_run" not in result.reason  # regular filter skip
+
+    async def test_dry_run_no_grab_row_created(self, temp_db):
+        """Dry-run should not create a grab row."""
+        deps = _make_deps(
+            filter_config=_make_filter_config(allowed=["Brandon Sanderson"]),
+        )
+        deps.dry_run = True
+
+        result = await handle_announce(deps, _make_announce())
+
+        assert result.grab_id is None

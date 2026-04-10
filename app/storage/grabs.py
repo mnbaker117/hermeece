@@ -49,6 +49,12 @@ STATE_FAILED_UNKNOWN = "failed_unknown"
 # could detect this as soft-success and stop counting it as failed.
 STATE_DUPLICATE_IN_QBIT = "duplicate_in_qbit"
 
+# Phase 2 post-download states.
+STATE_DOWNLOADING = "downloading"
+STATE_DOWNLOADED = "downloaded"
+STATE_PROCESSING = "processing"
+STATE_COMPLETE = "complete"
+
 
 @dataclass(frozen=True)
 class GrabRow:

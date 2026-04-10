@@ -13,11 +13,13 @@ constructs an instance, tweaks the fields it cares about, and the
 `fake_mam` pytest fixture wires it into `cookie._client` for the
 duration of the test. After the test the original client is restored.
 
-Three endpoints are simulated, matching the real MAM surface:
+Four endpoints are simulated, matching the real MAM surface:
 
   - loadSearchJSONbasic.php   — search probe (cookie.verify_session)
+                                AND torrent-by-id lookup (torrent_info)
   - dynamicSeedbox.php        — IP register     (cookie.register_ip)
   - download.php              — .torrent fetch  (grab.fetch_torrent)
+  - jsonLoad.php              — user status      (user_status)
 
 Each endpoint has independently configurable status code, body, and
 headers, plus a request log for assertions ("did the code under test
@@ -50,6 +52,27 @@ MINIMAL_BENCODED_TORRENT = (
 HTML_LOGIN_PAGE = (
     b"<!DOCTYPE html>\n<html>\n<head><title>MyAnonamouse - Login</title>"
     b"</head>\n<body>Please log in.</body></html>"
+)
+
+# Default jsonLoad.php response — realistic user account data.
+DEFAULT_USER_STATUS_BODY = (
+    b'{"classname":"Elite VIP","country_code":"us",'
+    b'"country_name":"United States","downloaded":"91.71 MiB",'
+    b'"downloaded_bytes":96160650,"ratio":91184.8,"seedbonus":71088,'
+    b'"uid":224285,"uploaded":"7.975 TiB",'
+    b'"uploaded_bytes":8768386723586,"username":"Turtles81","wedges":462}'
+)
+
+# Default search-by-id response — a single torrent result with
+# VIP/free/fl_vip fields.
+DEFAULT_TORRENT_INFO_BODY = (
+    b'{"perpage":1,"start":0,"found":1,"data":[{'
+    b'"id":"965093","language":"1","main_cat":"14","category":"63",'
+    b'"catname":"Ebooks - Fantasy","size":"5242880","numfiles":"1",'
+    b'"vip":"0","free":"0","fl_vip":"0","personal_freeleech":"0",'
+    b'"title":"Test Book","name":"Test Book",'
+    b'"author_info":"{\\"1234\\": \\"Test Author\\"}","seeders":"5",'
+    b'"leechers":"0","times_completed":"42"}]}'
 )
 
 
@@ -107,6 +130,13 @@ class FakeMAM:
             headers={"content-type": "application/x-bittorrent"},
         )
     )
+    user_status: _EndpointConfig = field(
+        default_factory=lambda: _EndpointConfig(
+            status=200,
+            body=DEFAULT_USER_STATUS_BODY,
+            headers={"content-type": "application/json"},
+        )
+    )
 
     # If set, every response produced by the fake includes a
     # `Set-Cookie: mam_id=<value>` header. Tests use this to
@@ -119,7 +149,9 @@ class FakeMAM:
         self.requests.append(request)
         url = str(request.url)
 
-        if "loadSearchJSONbasic.php" in url:
+        if "jsonLoad.php" in url:
+            cfg = self.user_status
+        elif "loadSearchJSONbasic.php" in url:
             cfg = self.search
         elif "dynamicSeedbox.php" in url:
             cfg = self.dynip
@@ -160,7 +192,7 @@ class FakeMAM:
     def simulate_cookie_expired_html(self) -> None:
         """All endpoints return 200 + HTML login page (MAM's typical
         response when a cookie has been rotated or expired)."""
-        for cfg in (self.search, self.dynip, self.download):
+        for cfg in (self.search, self.dynip, self.download, self.user_status):
             cfg.status = 200
             cfg.body = HTML_LOGIN_PAGE
             cfg.headers = {"content-type": "text/html"}
@@ -168,7 +200,7 @@ class FakeMAM:
     def simulate_cookie_rejected_403(self) -> None:
         """All endpoints return 403 Forbidden — what MAM does when
         the auth header is wrong but they bother to use a real status code."""
-        for cfg in (self.search, self.dynip, self.download):
+        for cfg in (self.search, self.dynip, self.download, self.user_status):
             cfg.status = 403
             cfg.body = b"forbidden"
             cfg.headers = {"content-type": "text/plain"}

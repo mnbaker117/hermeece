@@ -8,18 +8,24 @@ side effects — so it's trivial to unit-test against fixture data and
 trivial to call from any pipeline (the IRC listener, the manual-grab
 endpoint, the dry-run replay, the test harness).
 
-Decision matrix (faithful port of `previous-stuff/ebook_gate.sh`):
+Decision matrix (faithful port of `previous-stuff/ebook_gate.sh`,
+extended with format, language, and category-exclude gates):
 
-    1. If category not in allowed_categories  → SKIP, reason=category_not_allowed
-    2. If no author can be detected             → SKIP, reason=author_not_detected
-    3. Walk every parsed author:
+    1. Format gate (prefix before " - " in category):
+       a. If allowed_formats non-empty and format not in it → SKIP, reason=format_not_allowed
+       b. If format in excluded_formats                     → SKIP, reason=format_excluded
+    2. If allowed_languages non-empty and language not in it → SKIP, reason=language_not_allowed
+    3. If allowed_categories non-empty and cat not in it     → SKIP, reason=category_not_allowed
+    4. If category in excluded_categories                    → SKIP, reason=category_excluded
+    5. If no author can be detected                          → SKIP, reason=author_not_detected
+    6. Walk every parsed author:
        a. If ANY author is on the allow list  → ALLOW, reason=allowed_author
           (allow wins over ignore — if a co-author is allowed, the
           whole release is allowed)
        b. Else if author is on the ignore list → mark as ignored, keep walking
        c. Else                                  → mark as unknown, add to
                                                   weekly-skip set, keep walking
-    4. After the walk:
+    7. After the walk:
        a. If any author was unknown            → SKIP, reason=author_not_allowlisted
        b. Else if any author was ignored       → SKIP, reason=ignored_author
        c. Else (shouldn't happen — defensive)  → SKIP, reason=author_not_allowlisted_fallback
@@ -36,7 +42,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from app.filter.normalize import normalize_author, normalize_category
+from app.filter.normalize import extract_format, normalize_author, normalize_category
 
 # ─── Data classes ────────────────────────────────────────────
 
@@ -84,8 +90,12 @@ class FilterConfig:
     """
 
     allowed_categories: frozenset[str]
-    allowed_authors: frozenset[str]
-    ignored_authors: frozenset[str]
+    excluded_categories: frozenset[str] = frozenset()
+    allowed_formats: frozenset[str] = frozenset()
+    excluded_formats: frozenset[str] = frozenset()
+    allowed_languages: frozenset[str] = frozenset()
+    allowed_authors: frozenset[str] = frozenset()
+    ignored_authors: frozenset[str] = frozenset()
 
 
 Action = Literal["allow", "skip"]
@@ -208,17 +218,52 @@ def evaluate_announce(announce: Announce, config: FilterConfig) -> Decision:
 
     Pure function. The caller persists the result.
     """
-    # Step 1: category gate.
+    # Step 1: format gate. The format is the prefix before " - " in the
+    # raw MAM category (e.g. "Ebooks" from "Ebooks - Fantasy"). Checked
+    # before category so a blanket format exclusion like "comics/graphic
+    # novels" doesn't require listing every subcategory individually.
+    fmt = extract_format(announce.category)
+    if config.allowed_formats and fmt not in config.allowed_formats:
+        return Decision(
+            action="skip",
+            reason="format_not_allowed",
+        )
+    if fmt in config.excluded_formats:
+        return Decision(
+            action="skip",
+            reason="format_excluded",
+        )
+
+    # Step 2: language gate. MAM announces include a Language field
+    # (English, Spanish, etc.). Empty allowed_languages = accept all.
+    if config.allowed_languages:
+        lang_norm = announce.language.strip().lower()
+        if lang_norm not in config.allowed_languages:
+            return Decision(
+                action="skip",
+                reason="language_not_allowed",
+            )
+
+    # Step 3: category gate (inclusion).
     cat_norm = normalize_category(announce.category)
-    if cat_norm not in config.allowed_categories:
+    if config.allowed_categories and cat_norm not in config.allowed_categories:
         return Decision(
             action="skip",
             reason="category_not_allowed",
         )
 
-    # Step 2: author detection. Prefer the explicit author_blob field
+    # Step 4: category gate (exclusion). Lets the user include a whole
+    # format but carve out specific subcategories they don't want.
+    if cat_norm in config.excluded_categories:
+        return Decision(
+            action="skip",
+            reason="category_excluded",
+        )
+
+    # Step 5: author detection. Prefer the explicit author_blob field
     # (MAM IRC regex sets this), fall back to scraping torrent_name /
     # title / description for the rare manually-injected case.
+    # (Step 6 is the author walk loop below.)
     blob = announce.author_blob or extract_author_blob_from_text(
         announce.torrent_name,
         announce.title,
@@ -237,7 +282,7 @@ def evaluate_announce(announce: Announce, config: FilterConfig) -> Decision:
             reason="author_not_detected",
         )
 
-    # Step 3: walk authors. Track the first allow hit (which short-circuits)
+    # Step 6: walk authors. Track the first allow hit (which short-circuits)
     # plus the unknown / ignored buckets so we can pick the right skip
     # reason after the walk.
     matched_allowed: str = ""

@@ -34,6 +34,11 @@ from app.clients.base import TorrentClient
 from app.mam.grab import GrabResult
 from app.mam.torrent_meta import BencodeError, info_hash
 from app.orchestrator.dispatch import DispatcherDeps
+from app.orchestrator.download_watcher import (
+    TorrentSnap,
+    check_for_completions,
+)
+from app.orchestrator.pipeline import process_completion
 from app.rate_limit import ledger as ledger_mod
 from app.rate_limit import queue as queue_mod
 from app.storage import grabs as grabs_storage
@@ -95,6 +100,41 @@ async def _tick_inner(deps: DispatcherDeps, db) -> TickResult:
     qbit_torrents = await deps.qbit.list_torrents(category=deps.qbit_category)
     qbit_seen = len(qbit_torrents)
     snapshot = {t.hash: t.seeding_seconds for t in qbit_torrents if t.hash}
+
+    # ── Phase 1b: check for download completions ────────────
+    # Build the richer snapshot that the download watcher needs.
+    dl_snapshot = {
+        t.hash: TorrentSnap(state=t.state, save_path=t.save_path)
+        for t in qbit_torrents if t.hash
+    }
+    try:
+        completions = await check_for_completions(db, dl_snapshot)
+        if completions:
+            _log.info(
+                "budget watcher: %d new download completion(s) detected",
+                len(completions),
+            )
+            for event in completions:
+                try:
+                    await process_completion(
+                        db, event,
+                        staging_path=deps.staging_path,
+                        default_sink=deps.default_sink,
+                        calibre_library_path=deps.calibre_library_path,
+                        folder_sink_path=deps.folder_sink_path,
+                        audiobookshelf_library_path=deps.audiobookshelf_library_path,
+                        category_routing=deps.category_routing,
+                        ntfy_url=deps.ntfy_url,
+                        ntfy_topic=deps.ntfy_topic,
+                        auto_train_enabled=deps.auto_train_enabled,
+                    )
+                except Exception:
+                    _log.exception(
+                        "pipeline processing failed for grab_id=%d (non-fatal)",
+                        event.grab_id,
+                    )
+    except Exception:
+        _log.exception("download completion check failed (non-fatal)")
 
     # ── Phase 2: reconcile the ledger ───────────────────────
     summary = await ledger_mod.reconcile_with_qbit(
