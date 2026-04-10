@@ -85,6 +85,7 @@ class TorrentClient(Protocol):
         torrent_bytes: bytes,
         category: Optional[str] = None,
         save_path: Optional[str] = None,
+        tags: Optional[list[str]] = None,
     ) -> AddResult: ...
 
     async def list_torrents(

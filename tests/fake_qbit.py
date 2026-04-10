@@ -137,6 +137,7 @@ class FakeQbit:
         captured = {
             "category": _extract_form_field(body, "category"),
             "save_path": _extract_form_field(body, "savepath"),
+            "tags": _extract_form_field(body, "tags"),
             "torrent_size": _extract_torrent_size(body),
         }
         self.added_torrents.append(captured)

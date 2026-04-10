@@ -36,7 +36,7 @@ State transitions written by this module:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional, Protocol
 
 import aiosqlite
@@ -96,6 +96,14 @@ class DispatcherDeps:
     db_factory: _DbProvider
     fetch_torrent: GrabFetchFn
     qbit: TorrentClient
+
+    # Tag list to apply to every torrent Hermeece submits to qBit.
+    # Default empty list = no tagging. Production wires this from
+    # settings.json `qbit_tag` (default "hermeece-seed") so the
+    # user's existing manual-seed / autobrr-seed / hermeece-seed
+    # tag taxonomy stays consistent. Defaulted to empty in the
+    # dataclass so existing tests don't have to opt in.
+    qbit_tags: list[str] = field(default_factory=list)
 
     # Optional: an audit hook for tests / future observability.
     on_event: Optional[Callable[[str, dict], None]] = None
@@ -366,7 +374,9 @@ async def _dispatch_with_decision(
 
         # Submit path: hand the bytes to qBit.
         add_result = await deps.qbit.add_torrent(
-            torrent_bytes, category=deps.qbit_category
+            torrent_bytes,
+            category=deps.qbit_category,
+            tags=deps.qbit_tags or None,
         )
 
         if not add_result.success:

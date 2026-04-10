@@ -60,11 +60,13 @@ class _FakeQbit:
         torrent_bytes: bytes,
         category: Optional[str] = None,
         save_path: Optional[str] = None,
+        tags: Optional[list[str]] = None,
     ) -> AddResult:
         self.add_calls.append(
             {
                 "size": len(torrent_bytes),
                 "category": category,
+                "tags": tags,
                 "save_path": save_path,
             }
         )
@@ -238,6 +240,43 @@ class TestSubmitPath:
             assert row.released_at is None
         finally:
             await db.close()
+
+    async def test_qbit_tags_threaded_through_to_add_call(self, temp_db):
+        # The dispatcher must pass DispatcherDeps.qbit_tags into the
+        # qBit add_torrent call so the user's hermeece-seed tag
+        # actually lands on every torrent.
+        qbit = _FakeQbit()
+        deps = _make_deps(
+            filter_config=_make_filter_config(allowed=["Brandon Sanderson"]),
+            qbit=qbit,
+        )
+        # Patch the deps to set tags (the helper defaults to empty)
+        deps = DispatcherDeps(
+            **{**deps.__dict__, "qbit_tags": ["hermeece-seed"]}
+        )
+        await handle_announce(deps, _make_announce())
+
+        assert len(qbit.add_calls) == 1
+        assert qbit.add_calls[0]["tags"] == ["hermeece-seed"]
+
+    async def test_empty_qbit_tags_passes_none_not_empty_list(self, temp_db):
+        # Defensive: an empty tag list means "no tagging", and the
+        # dispatcher should pass None (not []) so the qBit client
+        # omits the form field entirely. Without this guard the qBit
+        # client would receive `tags=[]`, which on its add path
+        # produces no form field anyway, but we want the contract
+        # explicit so future refactors don't accidentally start
+        # sending `tags=` (which qBit could interpret as "clear all
+        # tags" on update endpoints).
+        qbit = _FakeQbit()
+        deps = _make_deps(
+            filter_config=_make_filter_config(allowed=["Brandon Sanderson"]),
+            qbit=qbit,
+        )
+        # Default qbit_tags is empty
+        await handle_announce(deps, _make_announce())
+
+        assert qbit.add_calls[0]["tags"] is None
 
 
 # ─── handle_announce: queue path ─────────────────────────────

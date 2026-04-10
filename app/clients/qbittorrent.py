@@ -149,6 +149,7 @@ class QbitClient:
         torrent_bytes: bytes,
         category: Optional[str] = None,
         save_path: Optional[str] = None,
+        tags: Optional[list[str]] = None,
     ) -> AddResult:
         """POST /api/v2/torrents/add (multipart).
 
@@ -171,7 +172,7 @@ class QbitClient:
                 failure_detail="qBit login rejected credentials",
             )
 
-        result = await self._do_add(torrent_bytes, category, save_path)
+        result = await self._do_add(torrent_bytes, category, save_path, tags)
         if result.success or result.failure_kind != "auth_failed":
             return result
 
@@ -184,13 +185,14 @@ class QbitClient:
                 failure_kind="auth_failed",
                 failure_detail="qBit re-login failed after session expiry",
             )
-        return await self._do_add(torrent_bytes, category, save_path)
+        return await self._do_add(torrent_bytes, category, save_path, tags)
 
     async def _do_add(
         self,
         torrent_bytes: bytes,
         category: Optional[str],
         save_path: Optional[str],
+        tags: Optional[list[str]] = None,
     ) -> AddResult:
         files = {
             # The form field name MUST be "torrents" (plural) — qBit's
@@ -203,6 +205,14 @@ class QbitClient:
             data["category"] = category
         if save_path:
             data["savepath"] = save_path
+        if tags:
+            # qBit's API takes a comma-separated list of tag names with
+            # NO whitespace around the commas. Tag names themselves
+            # CAN contain spaces — qBit splits strictly on commas.
+            # Filter empty strings out so a list with [""] doesn't
+            # produce a literal-empty tag (which qBit accepts but
+            # then renders awkwardly in the UI).
+            data["tags"] = ",".join(t for t in tags if t)
 
         try:
             resp = await self._client.post(

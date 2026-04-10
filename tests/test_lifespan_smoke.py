@@ -72,9 +72,10 @@ class _SmokeQbit:
         torrent_bytes: bytes,
         category: Optional[str] = None,
         save_path: Optional[str] = None,
+        tags: Optional[list[str]] = None,
     ) -> AddResult:
         self.add_calls.append(
-            {"size": len(torrent_bytes), "category": category}
+            {"size": len(torrent_bytes), "category": category, "tags": tags}
         )
         return AddResult(success=True)
 

@@ -55,8 +55,11 @@ class _FakeQbit:
         torrent_bytes: bytes,
         category: Optional[str] = None,
         save_path: Optional[str] = None,
+        tags: Optional[list[str]] = None,
     ) -> AddResult:
-        self.add_calls.append({"size": len(torrent_bytes), "category": category})
+        self.add_calls.append(
+            {"size": len(torrent_bytes), "category": category, "tags": tags}
+        )
         return self.add_result
 
     async def list_torrents(

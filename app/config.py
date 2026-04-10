@@ -58,6 +58,7 @@ ENV_QBIT_PASSWORD = os.getenv("QBIT_PASSWORD", "")
 # of `[mam-reseed]` (the bracket characters are part of the category
 # name, not a glob — qBit accepts arbitrary strings here).
 ENV_QBIT_WATCH_CATEGORY = os.getenv("QBIT_WATCH_CATEGORY", "[mam-reseed]")
+ENV_QBIT_TAG = os.getenv("QBIT_TAG", "hermeece-seed")
 
 # Calibre library path (mounted into the container). The library directory
 # that contains metadata.db. Empty by default — user configures via Settings.
@@ -141,6 +142,12 @@ DEFAULT_SETTINGS = {
     "qbit_username": "",
     "qbit_password": "",
     "qbit_watch_category": "[mam-reseed]",
+    # Comma-separated tag list applied to every torrent Hermeece
+    # submits to qBit. Lines up with the user's existing
+    # manual-seed / autobrr-seed / hermeece-seed convention so
+    # which client added what is visible at a glance in the qBit
+    # WebUI. Empty string disables tagging.
+    "qbit_tag": "hermeece-seed",
     # How often to poll qBit for completed torrents and seedtime updates.
     "qbit_poll_interval_seconds": 60,
 
@@ -280,6 +287,13 @@ def _apply_env_overrides(settings: dict):
         and settings.get("qbit_watch_category") == DEFAULT_SETTINGS["qbit_watch_category"]
     ):
         settings["qbit_watch_category"] = ENV_QBIT_WATCH_CATEGORY
+    # qbit_tag also has a non-empty default ("hermeece-seed"); same
+    # rule — env var only wins on first run vs the default.
+    if (
+        ENV_QBIT_TAG
+        and settings.get("qbit_tag") == DEFAULT_SETTINGS["qbit_tag"]
+    ):
+        settings["qbit_tag"] = ENV_QBIT_TAG
     if ENV_CALIBRE_LIBRARY_PATH and not settings.get("calibre_library_path"):
         settings["calibre_library_path"] = ENV_CALIBRE_LIBRARY_PATH
     if ENV_STAGING_PATH and not settings.get("staging_path"):

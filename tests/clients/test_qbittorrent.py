@@ -16,7 +16,6 @@ The fake-qBit fixture from `tests/conftest.py` provides a fresh
 the fake's transport — there's no monkey-patching of module state.
 """
 import httpx
-import pytest
 
 from app.clients.qbittorrent import QbitClient
 from tests.fake_mam import MINIMAL_BENCODED_TORRENT
@@ -244,6 +243,64 @@ class TestAddTorrent:
         assert result.success is False
         assert result.failure_kind == "unknown"
         assert "server error" in result.failure_detail.lower()
+
+    async def test_tags_passed_through_as_comma_separated(self, fake_qbit):
+        # Single tag — most common case (Hermeece's `hermeece-seed`).
+        client = _make_client(fake_qbit)
+        try:
+            await client.add_torrent(
+                MINIMAL_BENCODED_TORRENT,
+                category="mam-complete",
+                tags=["hermeece-seed"],
+            )
+        finally:
+            await client.aclose()
+
+        assert len(fake_qbit.added_torrents) == 1
+        assert fake_qbit.added_torrents[0]["tags"] == "hermeece-seed"
+
+    async def test_multiple_tags_joined_no_spaces(self, fake_qbit):
+        # qBit's API splits the `tags` form field strictly on commas
+        # with NO whitespace tolerated. Tag values themselves can
+        # contain spaces, but the SEPARATOR cannot.
+        client = _make_client(fake_qbit)
+        try:
+            await client.add_torrent(
+                MINIMAL_BENCODED_TORRENT,
+                tags=["hermeece-seed", "vip", "freeleech"],
+            )
+        finally:
+            await client.aclose()
+
+        assert fake_qbit.added_torrents[0]["tags"] == "hermeece-seed,vip,freeleech"
+
+    async def test_empty_tag_strings_dropped(self, fake_qbit):
+        # Defensive: a tag list with empty strings shouldn't produce
+        # literal-empty tags in qBit (which renders as a phantom
+        # blank tag in the UI).
+        client = _make_client(fake_qbit)
+        try:
+            await client.add_torrent(
+                MINIMAL_BENCODED_TORRENT,
+                tags=["hermeece-seed", "", "vip"],
+            )
+        finally:
+            await client.aclose()
+
+        assert fake_qbit.added_torrents[0]["tags"] == "hermeece-seed,vip"
+
+    async def test_no_tags_omits_form_field_entirely(self, fake_qbit):
+        # Backwards compat: existing add_torrent calls without the
+        # tags parameter should NOT send a tags=<empty> form field.
+        # qBit treats an empty tags field as "remove all tags" on
+        # update endpoints, and we want zero ambiguity here.
+        client = _make_client(fake_qbit)
+        try:
+            await client.add_torrent(MINIMAL_BENCODED_TORRENT)
+        finally:
+            await client.aclose()
+
+        assert fake_qbit.added_torrents[0]["tags"] is None
 
     async def test_fails_body_marks_duplicate(self, fake_qbit):
         # qBit's standard "torrent already in client" response is

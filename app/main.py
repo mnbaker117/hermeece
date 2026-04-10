@@ -82,10 +82,18 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
         username=settings.get("qbit_username", ""),
         password=settings.get("qbit_password", ""),
     )
+    # qbit_tag is a single string in settings.json, but the client
+    # accepts a list so the future VIP/freeleech work can stack
+    # additional tier-specific tags ("hermeece-seed,vip" or
+    # "hermeece-seed,freeleech-wedge") without changing the data
+    # type. Phase 1.5 ships with a single static tag.
+    raw_tag = settings.get("qbit_tag", "hermeece-seed").strip()
+    qbit_tags = [t.strip() for t in raw_tag.split(",") if t.strip()]
     return DispatcherDeps(
         filter_config=_build_filter_config(settings),
         mam_token=settings.get("mam_session_id", ""),
         qbit_category=settings.get("qbit_watch_category", "[mam-reseed]"),
+        qbit_tags=qbit_tags,
         budget_cap=int(settings.get("snatch_budget_cap", 200)),
         queue_max=int(settings.get("snatch_queue_max", 100)),
         queue_mode_enabled=settings.get("snatch_full_mode", "queue") == "queue",

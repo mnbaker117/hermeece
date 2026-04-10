@@ -46,6 +46,45 @@ _ANNOUNCE_RX = re.compile(
     r"Link: \( (https?://[^/]+/).*?(\d+)\s*\)\s*(VIP)?"
 )
 
+# mIRC formatting codes that real MAM IRC traffic includes inline.
+# Without stripping these, the regex above silently fails to match
+# every real announce — `04New Torrent:14` (color 4 / 14 wrapping
+# the literal text) is not the same as `New Torrent:` to a regex.
+# Caught the hard way during the first production smoke test: the
+# unit-test fixtures we had were the DECOLORED form Autobrr serves
+# in its logs, but raw IRC traffic carries the color bytes.
+#
+#   \x02  bold
+#   \x03  color (followed by NN[,MM] digits)
+#   \x0f  reset
+#   \x16  reverse
+#   \x1d  italic
+#   \x1e  strikethrough
+#   \x1f  underline
+#
+# The color sequence `\x03NN` or `\x03NN,MM` is the special case
+# because it has a numeric payload following the marker byte. The
+# others are single-byte tokens that we can drop directly.
+_COLOR_CODE_RX = re.compile(r"\x03(?:\d{1,2}(?:,\d{1,2})?)?")
+_FORMATTING_CODES = str.maketrans(
+    "", "", "\x02\x0f\x16\x1d\x1e\x1f"
+)
+
+
+def _strip_irc_formatting(line: str) -> str:
+    """Strip mIRC color/formatting codes from a raw IRC PRIVMSG body.
+
+    Order matters: handle the variable-length color sequences with a
+    regex first, THEN drop the single-byte formatting tokens with a
+    translate. Doing it in the other order would leave orphan digit
+    bytes from a color marker that's been partially consumed.
+    """
+    if not line:
+        return line
+    cleaned = _COLOR_CODE_RX.sub("", line)
+    cleaned = cleaned.translate(_FORMATTING_CODES)
+    return cleaned
+
 # MAM truncates the author list when there are too many co-authors,
 # appending "and N more" (or just ", N more"). Without stripping this
 # the splitter would happily produce a phantom author named "1 more"
@@ -81,7 +120,13 @@ def parse_announce(line: str) -> Optional[Announce]:
     if not line:
         return None
 
-    m = _ANNOUNCE_RX.search(line)
+    # Strip mIRC color and formatting codes BEFORE running the regex.
+    # MAM's MouseBot wraps fields in color codes (`\x0304New
+    # Torrent:\x0314 ...`) that the unit-test fixtures didn't have
+    # because they came from Autobrr's already-decolored log dump.
+    cleaned = _strip_irc_formatting(line)
+
+    m = _ANNOUNCE_RX.search(cleaned)
     if not m:
         return None
 
