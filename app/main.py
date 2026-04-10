@@ -130,6 +130,8 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
         dry_run=bool(settings.get("dry_run", False)),
         qbit_download_path=settings.get("qbit_download_path", ""),
         monthly_download_folders=bool(settings.get("monthly_download_folders", True)),
+        qbit_path_prefix=settings.get("qbit_path_prefix", "/data"),
+        local_path_prefix=settings.get("local_path_prefix", "/downloads"),
         staging_path=settings.get("staging_path", ""),
         default_sink=settings.get("default_sink", "calibre"),
         calibre_library_path=settings.get("calibre_library_path", ""),

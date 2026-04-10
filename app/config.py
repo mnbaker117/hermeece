@@ -190,8 +190,17 @@ DEFAULT_SETTINGS = {
     # True, Hermeece creates [YYYY-MM]/ subfolders here and tells qBit
     # to save each download in the current month's folder.
     # This should match the path AS SEEN BY QBIT (inside qBit's container
-    # if using Docker). E.g. "/downloads/[mam-complete]".
+    # if using Docker). E.g. "/data/[mam-complete]".
     "qbit_download_path": "",
+    # Path translation between qBit's container and Hermeece's container.
+    # qBit reports save_path using ITS mount paths (e.g. "/data/...").
+    # Hermeece needs to translate that to ITS mount paths to find files.
+    # qbit_path_prefix: what qBit uses (e.g. "/data")
+    # local_path_prefix: what Hermeece sees (e.g. "/downloads")
+    # The download watcher replaces qbit_path_prefix with local_path_prefix
+    # when reading files, and does the reverse when passing save_path to qBit.
+    "qbit_path_prefix": "/data",
+    "local_path_prefix": "/downloads",
     # Organize downloads into monthly subfolders ([2026-04]/, [2026-05]/).
     "monthly_download_folders": True,
     # How often to poll qBit for completed torrents and seedtime updates.

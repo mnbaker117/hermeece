@@ -34,6 +34,7 @@ from app.clients.base import TorrentClient
 from app.mam.grab import GrabResult
 from app.mam.torrent_meta import BencodeError, info_hash
 from app.orchestrator.dispatch import DispatcherDeps
+from app.orchestrator.download_folders import translate_path
 from app.orchestrator.download_watcher import (
     TorrentSnap,
     check_for_completions,
@@ -103,8 +104,15 @@ async def _tick_inner(deps: DispatcherDeps, db) -> TickResult:
 
     # ── Phase 1b: check for download completions ────────────
     # Build the richer snapshot that the download watcher needs.
+    # Translate qBit's save_path from qBit's container namespace
+    # to Hermeece's container namespace so the pipeline can find files.
     dl_snapshot = {
-        t.hash: TorrentSnap(state=t.state, save_path=t.save_path)
+        t.hash: TorrentSnap(
+            state=t.state,
+            save_path=translate_path(
+                t.save_path, deps.qbit_path_prefix, deps.local_path_prefix
+            ),
+        )
         for t in qbit_torrents if t.hash
     }
     try:

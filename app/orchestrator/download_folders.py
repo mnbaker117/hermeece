@@ -48,6 +48,27 @@ def current_month_folder(
     return str(Path(base_path) / folder_name)
 
 
+def translate_path(
+    path: str,
+    from_prefix: str,
+    to_prefix: str,
+) -> str:
+    """Translate a path between container mount namespaces.
+
+    E.g. translate_path("/data/[mam-complete]/book", "/data", "/downloads")
+         → "/downloads/[mam-complete]/book"
+
+    Returns the path unchanged if it doesn't start with from_prefix.
+    """
+    if not path or not from_prefix:
+        return path
+    from_prefix = from_prefix.rstrip("/")
+    to_prefix = to_prefix.rstrip("/")
+    if path.startswith(from_prefix + "/") or path == from_prefix:
+        return to_prefix + path[len(from_prefix):]
+    return path
+
+
 def ensure_folder_exists(path: str) -> bool:
     """Create the folder if it doesn't exist.
 

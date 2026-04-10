@@ -7,6 +7,7 @@ from pathlib import Path
 from app.orchestrator.download_folders import (
     current_month_folder,
     ensure_folder_exists,
+    translate_path,
 )
 
 
@@ -58,3 +59,31 @@ class TestEnsureFolderExists:
 
     def test_empty_path_returns_false(self):
         assert ensure_folder_exists("") is False
+
+
+class TestTranslatePath:
+    def test_qbit_to_local(self):
+        result = translate_path("/data/[mam-complete]/book", "/data", "/downloads")
+        assert result == "/downloads/[mam-complete]/book"
+
+    def test_local_to_qbit(self):
+        result = translate_path("/downloads/[mam-complete]/book", "/downloads", "/data")
+        assert result == "/data/[mam-complete]/book"
+
+    def test_no_match_returns_unchanged(self):
+        result = translate_path("/other/path/book", "/data", "/downloads")
+        assert result == "/other/path/book"
+
+    def test_exact_prefix_match(self):
+        result = translate_path("/data", "/data", "/downloads")
+        assert result == "/downloads"
+
+    def test_trailing_slashes_handled(self):
+        result = translate_path("/data/[mam-complete]", "/data/", "/downloads/")
+        assert result == "/downloads/[mam-complete]"
+
+    def test_empty_path(self):
+        assert translate_path("", "/data", "/downloads") == ""
+
+    def test_empty_prefix(self):
+        assert translate_path("/data/book", "", "/downloads") == "/data/book"

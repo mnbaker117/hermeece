@@ -119,6 +119,12 @@ class DispatcherDeps:
     qbit_download_path: str = ""
     monthly_download_folders: bool = True
 
+    # Path translation between qBit and Hermeece containers.
+    # qBit reports paths like "/data/[mam-complete]" but Hermeece
+    # mounts that host directory at "/downloads/[mam-complete]".
+    qbit_path_prefix: str = "/data"
+    local_path_prefix: str = "/downloads"
+
     # Phase 2 pipeline settings.
     staging_path: str = ""
     default_sink: str = "calibre"
