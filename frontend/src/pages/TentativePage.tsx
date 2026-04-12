@@ -85,22 +85,33 @@ export default function TentativePage() {
 
   return (
     <div>
-      <h1
-        style={{
-          fontSize: 24,
-          fontWeight: 700,
-          color: theme.text,
-          marginBottom: 4,
-        }}
-      >
-        Tentative torrents
-      </h1>
-      <p style={{ fontSize: 14, color: theme.textDim, marginBottom: 24 }}>
-        Announces that passed every filter except the author allow-list.
-        Approving fetches the torrent and adds the author to your allow
-        list; rejecting queues them for one more weekly pass before
-        auto-ignoring.
-      </p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: theme.text, marginBottom: 4 }}>
+            Tentative torrents
+          </h1>
+          <p style={{ fontSize: 14, color: theme.textDim }}>
+            Announces that passed every filter except the author allow-list.
+          </p>
+        </div>
+        {items && items.length > 0 && (
+          <Btn
+            variant="danger"
+            disabled={busyId !== null}
+            onClick={async () => {
+              if (!confirm(`Clear all ${items.length} pending tentative torrents?`)) return;
+              setBusyId(-1);
+              try {
+                await api.post("/v1/data/clear/tentative_torrents", {});
+                await refresh();
+              } catch (e) { setError(String(e)); }
+              finally { setBusyId(null); }
+            }}
+          >
+            Clear all
+          </Btn>
+        )}
+      </div>
 
       {error && (
         <div
