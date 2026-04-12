@@ -174,8 +174,8 @@ export default function SettingsPage() {
 
   const upd = (k: string, v: unknown) => setS(o => o ? { ...o, [k]: v } : o);
   const ist = { padding: "7px 12px", background: t.inp, border: `1px solid ${t.border}`, borderRadius: 6, color: t.text2, fontSize: 13, outline: "none" } as const;
-  // Number inputs need generous right padding so text doesn't crowd the spin arrows.
-  const nist = { ...ist, paddingRight: 24, textAlign: "right" as const } as const;
+  // Number inputs: wider box so the value text and spinner arrows don't overlap.
+  const nist = { ...ist, width: 90, textAlign: "center" as const } as const;
 
   const save = async () => {
     setSaving(true); setMsg("");
@@ -230,7 +230,7 @@ export default function SettingsPage() {
         </SF>
         <SF label="Review Timeout" desc="Books in the review queue longer than this are auto-added to Calibre with basic metadata only." example="14 days = undecided books get imported after 2 weeks.">
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input type="number" min={1} value={s.metadata_review_timeout_days as number ?? 14} onChange={e => upd("metadata_review_timeout_days", parseInt(e.target.value) || 14)} style={{ ...nist, width: 70 }} />
+            <input type="number" min={1} value={s.metadata_review_timeout_days as number ?? 14} onChange={e => upd("metadata_review_timeout_days", parseInt(e.target.value) || 14)} style={nist} />
             <span style={{ fontSize: 12, color: t.textDim }}>days</span>
           </div>
         </SF>
@@ -238,10 +238,10 @@ export default function SettingsPage() {
 
       <SSection title="Snatch Budget" desc="MAM active-snatches rate limiting">
         <SF label="Budget Cap" desc="Max active snatches. New grabs queue when full; oldest queue items rotate to the delayed folder." example="MAM default: 30 for new users, 200 for Power User+.">
-          <input type="number" min={1} value={s.snatch_budget_cap as number ?? 200} onChange={e => upd("snatch_budget_cap", parseInt(e.target.value) || 200)} style={{ ...nist, width: 80 }} />
+          <input type="number" min={1} value={s.snatch_budget_cap as number ?? 200} onChange={e => upd("snatch_budget_cap", parseInt(e.target.value) || 200)} style={nist} />
         </SF>
         <SF label="Queue Max" desc="Pending queue size before FIFO eviction to the delayed torrents folder." example="200 = matches budget cap for max throughput.">
-          <input type="number" min={1} value={s.snatch_queue_max as number ?? 200} onChange={e => upd("snatch_queue_max", parseInt(e.target.value) || 200)} style={{ ...nist, width: 80 }} />
+          <input type="number" min={1} value={s.snatch_queue_max as number ?? 200} onChange={e => upd("snatch_queue_max", parseInt(e.target.value) || 200)} style={nist} />
         </SF>
         <SF label="Excluded Uploaders" desc="MAM usernames whose uploads are never grabbed. Prevents downloading your own uploads." example="Add your MAM username here.">
           {editingUploaders ? (
@@ -268,7 +268,7 @@ export default function SettingsPage() {
           <STog on={!!s.policy_use_wedge} onToggle={() => upd("policy_use_wedge", !s.policy_use_wedge)} label />
         </SF>
         <SF label="Ratio Floor" desc="Skip non-free torrents when your ratio drops below this value. 0 disables ratio protection." example="1.0 = stops grabbing non-free books when ratio approaches 1:1.">
-          <input type="number" min={0} step={0.1} value={s.policy_ratio_floor as number ?? 0} onChange={e => upd("policy_ratio_floor", parseFloat(e.target.value) || 0)} style={{ ...nist, width: 80 }} />
+          <input type="number" min={0} step={0.1} value={s.policy_ratio_floor as number ?? 0} onChange={e => upd("policy_ratio_floor", parseFloat(e.target.value) || 0)} style={nist} />
         </SF>
       </SSection>
 
