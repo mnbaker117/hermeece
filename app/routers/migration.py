@@ -296,6 +296,27 @@ async def execute(body: ExecuteRequest) -> ExecuteResponse:
     )
 
 
+@router.post("/resume-all")
+async def resume_all():
+    """Resume all torrents in the watched category.
+
+    Called at the end of the migration wizard when the user clicks
+    "Start All Torrents" after verifying the migration results.
+    """
+    if state.dispatcher is None:
+        raise HTTPException(503, "dispatcher not initialized")
+    deps = state.dispatcher
+    qbit: QbitClient = deps.qbit  # type: ignore
+    torrents = await deps.qbit.list_torrents(category=deps.qbit_category)
+    resumed = 0
+    for t in torrents:
+        if t.state.lower() in ("pausedup", "pauseddl", "stoppedup", "stoppeddl", "stopped"):
+            ok = await qbit.resume_torrent(t.hash)
+            if ok:
+                resumed += 1
+    return {"ok": True, "resumed": resumed, "total": len(torrents)}
+
+
 async def _migrate_one(qbit: QbitClient, torrent_hash: str, target_path: str) -> bool:
     """Relocate one torrent: pause → setLocation → recheck → poll → resume.
 

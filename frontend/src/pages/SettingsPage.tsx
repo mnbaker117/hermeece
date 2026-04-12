@@ -37,8 +37,9 @@ function SF({ label, desc, example, children, warn, wide }: {
   const t = useTheme();
   return (
     <div style={{
-      display: "grid", gridTemplateColumns: wide ? "1fr" : "1fr auto",
-      alignItems: "start", padding: "16px 0", borderBottom: `1px solid ${t.borderL}`, gap: "8px 24px",
+      display: "grid",
+      gridTemplateColumns: wide ? "1fr" : "minmax(0, 1fr) minmax(200px, 340px)",
+      alignItems: "center", padding: "14px 0", borderBottom: `1px solid ${t.borderL}`, gap: "6px 20px",
     }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: t.text }}>{label}</div>
@@ -173,6 +174,8 @@ export default function SettingsPage() {
 
   const upd = (k: string, v: unknown) => setS(o => o ? { ...o, [k]: v } : o);
   const ist = { padding: "7px 12px", background: t.inp, border: `1px solid ${t.border}`, borderRadius: 6, color: t.text2, fontSize: 13, outline: "none" } as const;
+  // Number inputs need extra right padding so text doesn't overlap the spin arrows.
+  const nist = { ...ist, paddingRight: 6, textAlign: "right" as const } as const;
 
   const save = async () => {
     setSaving(true); setMsg("");
@@ -205,13 +208,13 @@ export default function SettingsPage() {
         <SF label="IRC Listener" desc="Connects to MAM's #announce channel and processes every new torrent through the filter gate." example="Disabling pauses all automatic grabbing. Manual injects still work.">
           <STog on={(s.mam_irc_enabled as boolean) ?? true} onToggle={() => upd("mam_irc_enabled", !(s.mam_irc_enabled ?? true))} label />
         </SF>
-        <SF label="qBittorrent Watcher" desc="Polls qBit every 60s to detect completed downloads, reconcile the budget ledger, and drain the pending queue." example="Disabling stops post-download pipeline processing.">
+        <SF label="Download Client Watcher" desc="Polls the download client every 60s to detect completed downloads, reconcile the snatch budget ledger, and drain the pending queue." example="Disabling stops all post-download pipeline processing.">
           <STog on={(s.pipeline_qbit_watcher_enabled as boolean) ?? true} onToggle={() => upd("pipeline_qbit_watcher_enabled", !(s.pipeline_qbit_watcher_enabled ?? true))} label />
         </SF>
         <SF label="Auto-Train Authors" desc="When a book is grabbed because one co-author matched, the other co-authors are automatically added to your allow list.">
           <STog on={(s.pipeline_auto_train_enabled as boolean) ?? true} onToggle={() => upd("pipeline_auto_train_enabled", !(s.pipeline_auto_train_enabled ?? true))} label />
         </SF>
-        <SF label="Dry Run" desc="Filter + policy run normally but no .torrent files are fetched and nothing is submitted to qBit. The announce log still records what WOULD have happened." warn={s.dry_run ? "Active — no torrents will be downloaded" : undefined}>
+        <SF label="Dry Run" desc="Filter + policy run normally but no .torrent files are fetched and nothing is submitted to the download client. The announce log still records what WOULD have happened." warn={s.dry_run ? "Active — no torrents will be downloaded" : undefined}>
           <STog on={!!s.dry_run} onToggle={() => upd("dry_run", !s.dry_run)} label />
         </SF>
       </SSection>
@@ -225,7 +228,7 @@ export default function SettingsPage() {
         </SF>
         <SF label="Review Timeout" desc="Books in the review queue longer than this are auto-added to Calibre with basic metadata only." example="14 days = undecided books get imported after 2 weeks.">
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input type="number" min={1} value={s.metadata_review_timeout_days as number ?? 14} onChange={e => upd("metadata_review_timeout_days", parseInt(e.target.value) || 14)} style={{ ...ist, width: 60, textAlign: "right" }} />
+            <input type="number" min={1} value={s.metadata_review_timeout_days as number ?? 14} onChange={e => upd("metadata_review_timeout_days", parseInt(e.target.value) || 14)} style={{ ...nist, width: 70 }} />
             <span style={{ fontSize: 12, color: t.textDim }}>days</span>
           </div>
         </SF>
@@ -233,10 +236,10 @@ export default function SettingsPage() {
 
       <SSection title="Snatch Budget" desc="MAM active-snatches rate limiting">
         <SF label="Budget Cap" desc="Max active snatches. New grabs queue when full; oldest queue items rotate to the delayed folder." example="MAM default: 30 for new users, 200 for Power User+.">
-          <input type="number" min={1} value={s.snatch_budget_cap as number ?? 200} onChange={e => upd("snatch_budget_cap", parseInt(e.target.value) || 200)} style={{ ...ist, width: 70, textAlign: "right" }} />
+          <input type="number" min={1} value={s.snatch_budget_cap as number ?? 200} onChange={e => upd("snatch_budget_cap", parseInt(e.target.value) || 200)} style={{ ...nist, width: 80 }} />
         </SF>
         <SF label="Queue Max" desc="Pending queue size before FIFO eviction to the delayed torrents folder." example="200 = matches budget cap for max throughput.">
-          <input type="number" min={1} value={s.snatch_queue_max as number ?? 200} onChange={e => upd("snatch_queue_max", parseInt(e.target.value) || 200)} style={{ ...ist, width: 70, textAlign: "right" }} />
+          <input type="number" min={1} value={s.snatch_queue_max as number ?? 200} onChange={e => upd("snatch_queue_max", parseInt(e.target.value) || 200)} style={{ ...nist, width: 80 }} />
         </SF>
         <SF label="Excluded Uploaders" desc="MAM usernames whose uploads are never grabbed. Prevents downloading your own uploads." example="Add your MAM username here.">
           {editingUploaders ? (
@@ -263,13 +266,13 @@ export default function SettingsPage() {
           <STog on={!!s.policy_use_wedge} onToggle={() => upd("policy_use_wedge", !s.policy_use_wedge)} label />
         </SF>
         <SF label="Ratio Floor" desc="Skip non-free torrents when your ratio drops below this value. 0 disables ratio protection." example="1.0 = stops grabbing non-free books when ratio approaches 1:1.">
-          <input type="number" min={0} step={0.1} value={s.policy_ratio_floor as number ?? 0} onChange={e => upd("policy_ratio_floor", parseFloat(e.target.value) || 0)} style={{ ...ist, width: 70, textAlign: "right" }} />
+          <input type="number" min={0} step={0.1} value={s.policy_ratio_floor as number ?? 0} onChange={e => upd("policy_ratio_floor", parseFloat(e.target.value) || 0)} style={{ ...nist, width: 80 }} />
         </SF>
       </SSection>
 
       <SSection title="Notifications (ntfy)" desc="Push notifications">
         <SF label="ntfy Server URL" desc="URL of your ntfy server (public or self-hosted)." example='"https://ntfy.sh" or "http://10.0.10.20:8080"'>
-          <input value={(s.ntfy_url as string) || ""} onChange={e => upd("ntfy_url", e.target.value)} placeholder="https://ntfy.sh" style={{ ...ist, width: 220 }} />
+          <input value={(s.ntfy_url as string) || ""} onChange={e => upd("ntfy_url", e.target.value)} placeholder="https://ntfy.sh" style={{ ...ist, width: 300, minWidth: 200 }} />
         </SF>
         <SF label="ntfy Topic" desc="Topic name to publish to. Subscribe in the ntfy app to receive.">
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -313,19 +316,19 @@ export default function SettingsPage() {
         } />)}
       </SSection>
 
-      <SSection title="qBittorrent" desc="Download client">
-        <SF label="WebUI URL" desc="Full URL to qBit's Web API including port." example='"http://10.0.10.20:8180"'>
-          <input value={(s.qbit_url as string) || ""} onChange={e => upd("qbit_url", e.target.value)} placeholder="http://10.0.10.20:8180" style={{ ...ist, width: 220 }} />
+      <SSection title="Download Client" desc="qBittorrent (more clients coming soon)">
+        <SF label="WebUI URL" desc="Full URL to the download client's Web API, including port." example='e.g. "http://10.0.10.20:8180" for qBittorrent'>
+          <input value={(s.qbit_url as string) || ""} onChange={e => upd("qbit_url", e.target.value)} placeholder="http://10.0.10.20:8180" style={{ ...ist, width: 260 }} />
         </SF>
-        <SF label="Username" desc="qBit WebUI login username.">
-          <input value={(s.qbit_username as string) || ""} onChange={e => upd("qbit_username", e.target.value)} placeholder="admin" style={{ ...ist, width: 140 }} />
+        <SF label="Username" desc="WebUI login username for the download client.">
+          <input value={(s.qbit_username as string) || ""} onChange={e => upd("qbit_username", e.target.value)} placeholder="admin" style={{ ...ist, width: 160 }} />
         </SF>
-        {qbitCreds.map(c => <CredField key={c.key} item={c} onSaved={loadCreds} desc="qBit WebUI login password." />)}
-        <SF label="Watch Category" desc="qBit category for Hermeece-managed torrents. Budget counting and download watching use this." example='Default "[mam-reseed]"'>
-          <input value={(s.qbit_watch_category as string) || "[mam-reseed]"} onChange={e => upd("qbit_watch_category", e.target.value)} style={{ ...ist, width: 160 }} />
+        {qbitCreds.map(c => <CredField key={c.key} item={c} onSaved={loadCreds} desc="WebUI login password for the download client." />)}
+        <SF label="Watch Category" desc="Torrent category that Hermeece manages. All grabs receive this category; the budget watcher counts only torrents in this category." example='Default "[mam-reseed]" — the bracket convention keeps it visually distinct.'>
+          <input value={(s.qbit_watch_category as string) || "[mam-reseed]"} onChange={e => upd("qbit_watch_category", e.target.value)} style={{ ...ist, width: 180 }} />
         </SF>
-        <SF label="Download Path" desc="Base download directory as seen by qBit's container." example='"/data/[mam-complete]"'>
-          <input value={(s.qbit_download_path as string) || ""} onChange={e => upd("qbit_download_path", e.target.value)} placeholder="/data/[mam-complete]" style={{ ...ist, width: 220 }} />
+        <SF label="Download Path" desc="Base download directory as seen inside the download client's container. Subfolders are created under this path based on the folder structure setting." example='e.g. "/data/[mam-complete]"'>
+          <input value={(s.qbit_download_path as string) || ""} onChange={e => upd("qbit_download_path", e.target.value)} placeholder="/data/[mam-complete]" style={{ ...ist, width: 260 }} />
         </SF>
         <SF label="Folder Structure" desc="How downloads are organized. 'Monthly' creates [YYYY-MM] folders; 'Flat' puts everything in the root path.">
           <select value={(s.download_folder_structure as string) || "monthly"} onChange={e => upd("download_folder_structure", e.target.value)}

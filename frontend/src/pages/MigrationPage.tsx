@@ -411,7 +411,65 @@ export default function MigrationPage() {
               </div>
             </div>
           ))}
+
+          {/* Final step: resume or finish */}
+          {!results.dry_run && results.succeeded > 0 && (
+            <div style={{
+              marginTop: 20, padding: "16px 20px",
+              background: theme.ok + "12", border: `1px solid ${theme.ok}33`,
+              borderRadius: 10, display: "flex", alignItems: "center",
+              justifyContent: "space-between", gap: 16, flexWrap: "wrap",
+            }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: theme.text }}>
+                  Migration complete
+                </div>
+                <div style={{ fontSize: 12, color: theme.textDim, marginTop: 4 }}>
+                  {results.succeeded} torrent(s) relocated and rechecked successfully.
+                  If you stopped your torrents before migrating, you can resume them now.
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <ResumeAllButton />
+                <Btn variant="ghost" onClick={() => { setStep("idle"); setPreview(null); setResults(null); }}>
+                  Finish
+                </Btn>
+              </div>
+            </div>
+          )}
         </Section>
+      )}
+    </div>
+  );
+}
+
+function ResumeAllButton() {
+  const theme = useTheme();
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function resumeAll() {
+    if (!confirm("Resume all stopped torrents in the watched category?")) return;
+    setBusy(true);
+    try {
+      const r = await api.post<{ ok: boolean; resumed: number; total: number }>("/v1/migration/resume-all");
+      setResult(`✓ Resumed ${r.resumed} of ${r.total} torrents`);
+    } catch (e) {
+      setResult(`✗ ${e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <Btn variant="primary" onClick={resumeAll} disabled={busy || result !== null}>
+        {busy ? <Spin size={14} /> : "▶ Start All Torrents"}
+      </Btn>
+      {result && (
+        <span style={{ fontSize: 12, color: result.startsWith("✓") ? theme.ok : theme.err, fontWeight: 600 }}>
+          {result}
+        </span>
       )}
     </div>
   );
