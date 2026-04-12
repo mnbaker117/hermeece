@@ -61,6 +61,7 @@ from app.routers.auth import router as auth_router
 from app.routers.authors import router as authors_router
 from app.routers.enums import router as enums_router
 from app.routers.inject import router as inject_router
+from app.routers.mam import router as mam_router
 from app.routers.review import router as review_router
 from app.routers.settings import router as settings_router
 from app.routers.tentative import router as tentative_router
@@ -621,6 +622,7 @@ app.include_router(auth_router)
 app.include_router(authors_router)
 app.include_router(enums_router)
 app.include_router(inject_router)
+app.include_router(mam_router)
 app.include_router(review_router)
 app.include_router(settings_router)
 app.include_router(tentative_router)

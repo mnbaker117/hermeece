@@ -22,6 +22,7 @@ import { Spin } from "./components/Spin";
 import LoginPage from "./pages/LoginPage";
 import AuthorsPage from "./pages/AuthorsPage";
 import Dashboard from "./pages/Dashboard";
+import MamPage from "./pages/MamPage";
 import ReviewPage from "./pages/ReviewPage";
 import SettingsPage from "./pages/SettingsPage";
 import TentativePage from "./pages/TentativePage";
@@ -44,6 +45,7 @@ const NAV: { id: string; label: string }[] = [
   { id: "review", label: "Review queue" },
   { id: "tentative", label: "Tentative" },
   { id: "authors", label: "Authors" },
+  { id: "mam", label: "MAM" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -251,6 +253,7 @@ function AppInner() {
           {page === "review" && <ReviewPage />}
           {page === "tentative" && <TentativePage />}
           {page === "authors" && <AuthorsPage />}
+          {page === "mam" && <MamPage />}
           {page === "settings" && <SettingsPage />}
         </div>
       </main>

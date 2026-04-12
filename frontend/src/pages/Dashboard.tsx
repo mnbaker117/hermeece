@@ -33,26 +33,38 @@ interface HealthResponse {
   dispatcher_ready: boolean;
 }
 
+interface MamStatusResponse {
+  cookie_configured: boolean;
+  validation_ok: boolean;
+  ratio: number | null;
+  wedges: number | null;
+  username: string | null;
+  error: string | null;
+}
+
 export default function Dashboard({ onNav }: DashboardProps) {
   const theme = useTheme();
   const [reviewCount, setReviewCount] = useState<number | null>(null);
   const [tentativeCount, setTentativeCount] = useState<number | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [mam, setMam] = useState<MamStatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
       try {
-        const [review, tentative, h] = await Promise.all([
+        const [review, tentative, h, mamS] = await Promise.all([
           api.get<ReviewListResponse>("/v1/review"),
           api.get<TentativeListResponse>("/v1/tentative"),
           api.get<HealthResponse>("/health"),
+          api.get<MamStatusResponse>("/v1/mam/status").catch(() => null),
         ]);
         if (cancelled) return;
         setReviewCount(review.pending_count);
         setTentativeCount(tentative.items.length);
         setHealth(h);
+        setMam(mamS);
         setError(null);
       } catch (e) {
         if (cancelled) return;
@@ -123,6 +135,24 @@ export default function Dashboard({ onNav }: DashboardProps) {
           label="Dispatcher"
           value={health?.dispatcher_ready ? "Ready" : "—"}
           tone={health?.dispatcher_ready ? "ok" : "dim"}
+        />
+        <StatCard
+          label="MAM ratio"
+          value={mam?.ratio !== null && mam?.ratio !== undefined ? mam.ratio.toFixed(2) : "—"}
+          onClick={() => onNav("mam")}
+          tone={mam?.ratio !== null && mam?.ratio !== undefined ? (mam.ratio >= 1 ? "ok" : undefined) : "dim"}
+        />
+        <StatCard
+          label="Wedges"
+          value={mam?.wedges ?? "—"}
+          onClick={() => onNav("mam")}
+        />
+        <StatCard
+          label="Cookie"
+          value={mam?.cookie_configured ? (mam.validation_ok ? "Valid" : "Stale") : "Missing"}
+          onClick={() => onNav("mam")}
+          tone={mam?.validation_ok ? "ok" : mam?.cookie_configured ? undefined : "dim"}
+          highlight={mam?.cookie_configured === true && !mam?.validation_ok}
         />
       </div>
 
