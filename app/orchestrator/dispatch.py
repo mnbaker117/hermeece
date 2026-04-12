@@ -62,6 +62,7 @@ from app.rate_limit import decide_grab_action
 from app.rate_limit import ledger as ledger_mod
 from app.rate_limit import queue as queue_mod
 from app.storage import grabs as grabs_storage
+from app.storage import tentative as tentative_storage
 
 _log = logging.getLogger("hermeece.orchestrator.dispatch")
 
@@ -293,6 +294,59 @@ async def _dispatch_with_decision(
                     "reason": filter_decision.reason,
                 },
             )
+
+            # Tier 2 routing: if the ONLY reason the filter said skip
+            # was the author allow list, capture the torrent as a
+            # "tentative" — the user may want it even though nobody
+            # on the allow list wrote it. No .torrent is fetched until
+            # the user approves via /api/v1/tentative/{id}/approve.
+            if filter_decision.reason == "author_not_allowlisted":
+                try:
+                    await tentative_storage.upsert_tentative(
+                        db,
+                        mam_torrent_id=announce.torrent_id,
+                        torrent_name=announce.torrent_name,
+                        author_blob=announce.author_blob
+                            or filter_decision.primary_log_author
+                            or "",
+                        category=announce.category,
+                        language=announce.language,
+                        format=announce.filetype,
+                        vip=announce.vip,
+                        scraped_metadata=None,
+                        cover_path=None,
+                    )
+                    _emit(deps, "tentative_captured",
+                          {"torrent_id": announce.torrent_id})
+                except Exception:
+                    _log.exception(
+                        "failed to capture tentative torrent tid=%s",
+                        announce.torrent_id,
+                    )
+
+            # Tier 2 routing: if the author was on the ignored list,
+            # stash a seen-row so the weekly review can show the user
+            # what they're turning down. Seeding cover / metadata
+            # scraping comes in Tier 4.
+            elif filter_decision.reason == "ignored_author":
+                try:
+                    await tentative_storage.record_ignored_seen(
+                        db,
+                        mam_torrent_id=announce.torrent_id,
+                        torrent_name=announce.torrent_name,
+                        author_blob=announce.author_blob
+                            or filter_decision.primary_log_author
+                            or "",
+                        category=announce.category,
+                        info_url=announce.info_url or None,
+                        cover_path=None,
+                    )
+                except Exception:
+                    _log.exception(
+                        "failed to record ignored-seen tid=%s",
+                        announce.torrent_id,
+                    )
+
             return DispatchResult(
                 action="skip",
                 reason=filter_decision.reason,

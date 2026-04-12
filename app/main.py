@@ -50,6 +50,7 @@ from app.orchestrator.dispatch import DispatcherDeps, handle_announce
 from app.orchestrator.review_timeout import run_loop as review_timeout_loop
 from app.routers.inject import router as inject_router
 from app.routers.review import router as review_router
+from app.routers.tentative import router as tentative_router
 
 # Configure logging once at import time. The verbose toggle gets re-applied
 # from settings.json after load_settings() runs in the lifespan.
@@ -479,6 +480,7 @@ app = FastAPI(
 )
 app.include_router(inject_router)
 app.include_router(review_router)
+app.include_router(tentative_router)
 
 
 @app.get("/api/health")
