@@ -1,20 +1,8 @@
-// Hermeece app shell.
+// Hermeece app shell — mirrors AthenaScout's UI patterns.
 //
-// Auth gating:
-//   loading                       → spinner
-//   !authenticated && first_run   → LoginPage in setup mode
-//   !authenticated && !first_run  → LoginPage in sign-in mode
-//   authenticated                 → main shell with nav + page slot
-//
-// Routing is handled with a `page` state variable rather than
-// react-router. The page count is small and a hash router would only
-// add weight; this matches the AthenaScout pattern. We persist the
-// last page in localStorage so reloads land on the same screen.
-//
-// The `hermeece:auth-required` window event is dispatched by api.ts
-// on any 401 response. We catch it here and drop back to login,
-// covering the "session expired while you were on the page" case
-// without each call site having to handle 401s itself.
+// Nav structure: primary workflow pages in the horizontal bar,
+// secondary/power-user pages as icon buttons on the right side.
+// Dashboard is the logo click target.
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { ThemeProvider, useTheme, useThemeControls } from "./theme";
@@ -46,17 +34,13 @@ interface CheckResponse {
   username?: string;
 }
 
-const NAV: { id: string; label: string }[] = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "review", label: "Review queue" },
-  { id: "tentative", label: "Tentative" },
-  { id: "ignored-weekly", label: "Ignored" },
-  { id: "authors", label: "Authors" },
-  { id: "filters", label: "Filters" },
-  { id: "delayed", label: "Delayed" },
-  { id: "migration", label: "Migration" },
-  { id: "mam", label: "MAM" },
-  { id: "settings", label: "Settings" },
+// Primary nav: the daily-driver pages. Kept short so the bar doesn't
+// overflow on narrow screens. Mirrors AthenaScout's 6-item main nav.
+const NAV: { id: string; label: string; icon: string }[] = [
+  { id: "review", label: "Review", icon: "📋" },
+  { id: "tentative", label: "Tentative", icon: "❓" },
+  { id: "ignored-weekly", label: "Ignored", icon: "🚫" },
+  { id: "authors", label: "Authors", icon: "✍" },
 ];
 
 function loadSavedPage(): string {
@@ -94,11 +78,7 @@ function AppInner() {
         username: r.username,
       });
     } catch {
-      setAuth({
-        loading: false,
-        authenticated: false,
-        firstRun: false,
-      });
+      setAuth({ loading: false, authenticated: false, firstRun: false });
     }
   }
 
@@ -118,166 +98,94 @@ function AppInner() {
 
   function nav(p: string) {
     setPage(p);
-    try {
-      localStorage.setItem("hermeece_page", p);
-    } catch {
-      /* ignore */
-    }
+    try { localStorage.setItem("hermeece_page", p); } catch { /* */ }
     window.scrollTo(0, 0);
   }
 
   async function logout() {
-    try {
-      await api.post("/auth/logout");
-    } catch {
-      /* ignore */
-    }
-    setAuth({
-      loading: false,
-      authenticated: false,
-      firstRun: false,
-    });
+    if (!confirm("Sign out of Hermeece?")) return;
+    try { await api.post("/auth/logout"); } catch { /* */ }
+    setAuth({ loading: false, authenticated: false, firstRun: false });
   }
 
   if (auth.loading) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: theme.bg,
-        }}
-      >
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: theme.bg }}>
         <Spin />
       </div>
     );
   }
 
   if (!auth.authenticated) {
-    return (
-      <LoginPage
-        firstRun={auth.firstRun}
-        onLoginSuccess={() => checkAuth()}
-      />
-    );
+    return <LoginPage firstRun={auth.firstRun} onLoginSuccess={() => checkAuth()} />;
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: theme.bg }}>
-      <nav
-        style={{
-          position: "sticky",
-          top: 0,
-          zIndex: 50,
-          background: theme.bg + "ee",
-          backdropFilter: "blur(12px)",
-          borderBottom: `1px solid ${theme.borderL}`,
-        }}
-      >
-        <div
-          style={{
-            maxWidth: 1120,
-            margin: "0 auto",
-            padding: "0 20px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            height: 56,
-            gap: 12,
-          }}
-        >
-          <button
-            onClick={() => nav("dashboard")}
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              fontSize: 18,
-              fontWeight: 700,
-              color: theme.accent,
-              padding: 0,
-            }}
-          >
+    <div style={{ minHeight: "100vh", background: theme.bg, color: theme.text2 }}>
+      {/* ── Sticky nav ── */}
+      <nav style={{
+        position: "sticky", top: 0, zIndex: 50,
+        background: theme.bg + "ee", backdropFilter: "blur(12px)",
+        borderBottom: `1px solid ${theme.borderL}`,
+      }}>
+        <div style={{
+          maxWidth: 1120, margin: "0 auto", padding: "0 20px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          height: 56, gap: 8,
+        }}>
+          {/* Logo / Dashboard link */}
+          <button onClick={() => nav("dashboard")} style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 18, fontWeight: 700, color: theme.accent, padding: 0,
+            flexShrink: 0, position: "relative", paddingBottom: 4,
+          }}>
             Hermeece
+            {page === "dashboard" && (
+              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: theme.accent, borderRadius: 1 }} />
+            )}
           </button>
-          <div style={{ display: "flex", gap: 4, flex: 1, marginLeft: 16 }}>
+
+          {/* Primary nav items */}
+          <div style={{ display: "flex", gap: 2, flex: 1, marginLeft: 16, overflowX: "auto" }}>
             {NAV.map((n) => (
               <button
                 key={n.id}
                 onClick={() => nav(n.id)}
                 style={{
-                  padding: "8px 14px",
-                  borderRadius: 8,
-                  fontSize: 14,
-                  fontWeight: 500,
-                  border: "none",
-                  cursor: "pointer",
+                  padding: "8px 14px", borderRadius: 8, fontSize: 14,
+                  fontWeight: 500, border: "none", cursor: "pointer",
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  height: 36, whiteSpace: "nowrap", flexShrink: 0,
                   background: page === n.id ? theme.bg4 : "transparent",
                   color: page === n.id ? theme.accent : theme.text2,
                 }}
               >
+                <span style={{ fontSize: 15, lineHeight: 1 }}>{n.icon}</span>
                 {n.label}
               </button>
             ))}
           </div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              fontSize: 13,
-              color: theme.textDim,
-            }}
-          >
-            <button
-              onClick={() => nav("logs")}
-              title="Log viewer"
-              style={{
-                background: page === "logs" ? theme.bg4 : "transparent",
-                border: `1px solid ${theme.border}`,
-                color: page === "logs" ? theme.accent : theme.text2,
-                width: 32,
-                height: 32,
-                borderRadius: 8,
-                fontSize: 14,
-                cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 0,
-              }}
-            >
-              {"📋"}
-            </button>
+
+          {/* Right-side icon cluster: secondary pages + user actions */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+            <NavIcon page={page} target="filters" icon="🏷" title="Filters" onClick={() => nav("filters")} />
+            <NavIcon page={page} target="mam" icon="🔍" title="MAM Status" onClick={() => nav("mam")} />
+            <NavIcon page={page} target="logs" icon="📝" title="Logs" onClick={() => nav("logs")} />
+            <NavIcon page={page} target="settings" icon="⚙" title="Settings" onClick={() => nav("settings")} />
             <ThemeToggleButton />
-            <span>{auth.username}</span>
-            <button
-              onClick={logout}
-              style={{
-                background: "transparent",
-                border: `1px solid ${theme.border}`,
-                color: theme.text2,
-                padding: "6px 12px",
-                borderRadius: 8,
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-            >
+            <button onClick={logout} style={{
+              background: "transparent", border: `1px solid ${theme.border}`,
+              color: theme.text2, padding: "6px 10px", borderRadius: 8,
+              fontSize: 11, cursor: "pointer", whiteSpace: "nowrap",
+            }}>
               Sign out
             </button>
           </div>
         </div>
       </nav>
 
-      <main
-        style={{
-          maxWidth: 1120,
-          margin: "0 auto",
-          padding: "28px 20px",
-        }}
-      >
+      {/* ── Main content ── */}
+      <main style={{ maxWidth: 1120, margin: "0 auto", padding: "28px 20px" }}>
         <ErrorBoundary onReset={() => nav("dashboard")} key={page}>
           <div style={{ animation: "fade-in 0.2s ease-out" }}>
             {page === "dashboard" && <Dashboard onNav={nav} />}
@@ -285,11 +193,11 @@ function AppInner() {
             {page === "tentative" && <TentativePage />}
             {page === "ignored-weekly" && <IgnoredWeeklyPage />}
             {page === "authors" && <AuthorsPage />}
-            {page === "logs" && <LogsPage />}
             {page === "filters" && <FiltersPage />}
             {page === "delayed" && <DelayedPage />}
             {page === "migration" && <MigrationPage />}
             {page === "mam" && <MamPage />}
+            {page === "logs" && <LogsPage />}
             {page === "settings" && <SettingsPage />}
           </div>
         </ErrorBoundary>
@@ -298,34 +206,42 @@ function AppInner() {
   );
 }
 
-// Small sun/moon/cloud glyph button that cycles through dark → dim → light.
-// The icon matches the CURRENT theme so the user knows which one they're in.
+function NavIcon({ page, target, icon, title, onClick }: {
+  page: string; target: string; icon: string; title: string; onClick: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      style={{
+        width: 36, height: 36, borderRadius: 8,
+        fontSize: 14, border: "none", cursor: "pointer",
+        background: page === target ? theme.bg4 : "transparent",
+        color: page === target ? theme.accent : theme.text2,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+      }}
+    >
+      {icon}
+    </button>
+  );
+}
+
 function ThemeToggleButton() {
   const theme = useTheme();
   const { themeName, cycle } = useThemeControls();
-  const icon =
-    themeName === "dark" ? "🌙" : themeName === "dim" ? "⛅" : "☀️";
-  const next =
-    themeName === "dark" ? "Dim" : themeName === "dim" ? "Light" : "Dark";
+  const icon = themeName === "dark" ? "🌙" : themeName === "dim" ? "⛅" : "☀️";
+  const next = themeName === "dark" ? "Dim" : themeName === "dim" ? "Light" : "Dark";
   return (
     <button
       onClick={cycle}
       title={`Theme: ${theme.name} — click for ${next}`}
       aria-label="Cycle theme"
       style={{
-        background: "transparent",
-        border: `1px solid ${theme.border}`,
-        color: theme.text2,
-        width: 32,
-        height: 32,
-        borderRadius: 8,
-        fontSize: 14,
-        lineHeight: 1,
-        cursor: "pointer",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 0,
+        width: 36, height: 36, borderRadius: 8,
+        fontSize: 14, border: "none", cursor: "pointer",
+        background: "transparent", color: theme.text2,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
       }}
     >
       {icon}
