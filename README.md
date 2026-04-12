@@ -1,57 +1,134 @@
 # Hermeece
 
-**Hermes for the meece.** A single-purpose courier for [MyAnonamouse](https://www.myanonamouse.net/) that watches the IRC announce channel, filters new ebook and audiobook releases against a personal author allow/ignore list, grabs the matching torrents into qBittorrent, ingests completed downloads into a Calibre library after metadata review, and tells you about it on ntfy.
+**Hermes for the meece.** A self-hosted MAM ([MyAnonamouse](https://www.myanonamouse.net/)) courier and Calibre ingest pipeline.
+
+Watches MAM's IRC announce channel for new ebook and audiobook releases, filters them against your personal author lists, downloads them through your torrent client, enriches metadata from 7 sources, queues them for your manual review with cover images, and delivers approved books to Calibre/CWA.
 
 Sibling project to [AthenaScout](https://github.com/mnbaker117/AthenaScout). AthenaScout finds the books you're missing; Hermeece goes and gets them.
 
-## Status
+![Dashboard](https://img.shields.io/badge/UI-React_18-blue) ![Python](https://img.shields.io/badge/Python-3.12+-green) ![Tests](https://img.shields.io/badge/Tests-625_passing-brightgreen) ![License](https://img.shields.io/badge/License-Private-lightgrey)
 
-🚧 **Pre-alpha — Phase 1 in progress.** This README will grow as features land.
+## Features
 
-## Why
+### Pipeline
+- **IRC announce monitoring** — connects to `irc.myanonamouse.net`, parses every announce in real time
+- **Author-based filtering** — allow list, ignore list, tentative (unknown author) capture for review
+- **VIP / freeleech / wedge / ratio policy engine** — configurable economic guards before every grab
+- **Snatch budget management** — tracks the MAM active-snatches cap, queues when full, FIFO-rotates to a delayed folder when the queue overflows
+- **Excluded uploaders** — prevents downloading your own uploads (MAM duplicate detection)
+- **Monthly folder organization** — auto-creates `[YYYY-MM]` subfolders in your download directory
 
-Replaces a multi-app workflow (Autobrr → qBittorrent → manual copy → manual Calibre add → manual metadata) with a single service that owns the whole pipeline end-to-end and exposes it through one web UI.
+### Post-Download
+- **Mandatory manual review queue** — every downloaded book is enriched + staged for your approval before Calibre delivery
+- **Metadata enrichment from 7 sources** — MAM (primary, zero extra cost), Goodreads, Amazon, Hardcover, Kobo, IBDB, Google Books
+- **Cover images** — MAM poster (primary) + Goodreads/enricher cover (alternative) side by side
+- **Metadata editing** — inline title/author/series/ISBN/publisher editing before approval
+- **Auto-add timeout** — undecided books get imported with basic metadata after a configurable grace period
 
-Hermeece is **deliberately MAM-only**. No tracker abstractions, no plugin system. Every line of code knows it's talking to MyAnonamouse, and that's by design — it lets the codebase stay small and the user experience stay opinionated.
+### Review Flows
+- **Tentative torrent review** — announces from unknown authors are captured with MAM cover images for your decision (approve = download + train author; reject = weekly review bucket)
+- **Weekly ignored review** — ignored-author torrents grouped by author with expandable book dropdowns and covers
+- **3-tier author taxonomy** — allowed → tentative review → ignored, with weekly auto-promotion
 
-## What it does (planned)
+### Notifications
+- **Daily digests** — accepted books, tentative captures, ignored summary via ntfy
+- **Weekly digest** — author moves, Calibre additions, stale tentative-review auto-promotions
+- **Per-event notifications** — optional ntfy pings on every grab and completion
+- **Granular toggles** — enable/disable each notification type individually
 
-- Connects to `irc.myanonamouse.net` and parses MouseBot announces in real time
-- Filters announces against a configurable author allowlist + ignore list
-- Tracks an "unknown authors" weekly review queue
-- Manages your `mam_id` session cookie: validates, warns before expiry, retries failed grabs after a fresh cookie is uploaded
-- Respects MAM's snatch budget by tracking torrent seedtime via qBittorrent's API and queueing grabs locally when the budget is full
-- Watches qBittorrent for completed downloads (whether Hermeece grabbed them or you did manually)
-- Stages completed books for metadata review, fetches candidates via Calibre's `fetch-ebook-metadata`
-- Adds approved books to your Calibre library via `calibredb`
-- Treats Calibre as the source of truth for the author allowlist via a weekly audit
-- Sends a daily ntfy digest of newly added books
-- Provides a React + Vite web UI for review queues, author management, snatch budget, cookie status, and a dashboard across all four apps in the pipeline
+### Web UI
+- **13 pages** — Dashboard, Book Review, New Authors, Weekly Ignored, Author Lists, Filters, Delayed Torrents, Migration Wizard, MAM Status, Logs, Settings
+- **AthenaScout-style design** — dark/dim/light themes, collapsible settings sections, masonry layout
+- **Authentication** — single-admin with bcrypt passwords, signed session cookies, first-run setup wizard
+- **Encrypted credential storage** — Fernet-encrypted secrets in a separate auth database
+- **Error boundary** — crashed pages show a recovery button instead of a blank screen
 
-## What it does NOT do
+### Download Clients
+- **qBittorrent** (fully tested)
+- **Transmission** (RPC with session-id auto-refresh)
+- **Deluge** (JSON-RPC with Label plugin auto-detection)
+- **rTorrent** (XML-RPC via reverse proxy)
 
-- Support trackers other than MAM
-- Replace your Calibre or Calibre-Web-Automated install (it writes to the same library; CWA stays read-only relative to Hermeece's pipeline)
-- Manage your VPN or torrent client networking
-- Pretend to be a general-purpose torrent manager
+### Integrations
+- **CWA sink** — atomic write to Calibre-Web-Automated's ingest folder
+- **Calibre sink** — direct `calibredb add`
+- **AthenaScout** — `POST /api/v1/grabs/from-athenascout` accepts batched torrent URLs
+- **Migration wizard** — relocate existing downloads to monthly folders with dry-run mode
+
+## Quick Start
+
+### Docker (recommended)
+
+```bash
+# Clone the repo
+git clone https://github.com/mnbaker117/hermeece.git
+cd hermeece
+
+# Copy and edit the compose file
+cp docker-compose.example.yml docker-compose.yml
+# Edit docker-compose.yml — adjust volume mount paths for your system
+
+# Start the container
+docker compose up -d
+
+# Open the web UI
+open http://your-server:8788
+```
+
+On first boot:
+1. Create your admin account (setup wizard)
+2. Go to **Settings** → enter MAM credentials, download client connection, ntfy URL
+3. The IRC listener connects automatically and starts processing announces
+
+### Unraid
+
+Add via Community Applications using the template URL, or manually add the container with:
+- **Repository:** `ghcr.io/mnbaker117/hermeece:latest`
+- **Port:** 8788
+
+### Development
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+cd frontend && npm install && npm run build && cd ..
+pytest  # 625 tests
+uvicorn app.main:app --reload --port 8788
+```
 
 ## Architecture
 
-See `previous-stuff/` for the original shell-script workflow this project replaces. The Python rewrite lives under `app/` and is structured as one FastAPI service with background workers, a SQLite database for workflow state, and a React frontend.
-
-Detailed architecture and phased build plan: TBD (will be added as Phase 1 lands).
-
-## Development
-
-Requires Python 3.12+.
-
-```sh
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-pytest
 ```
+IRC announce → Filter gate → Policy engine → Rate limiter
+    ↓ (allowed)                                  ↓
+Tentative capture ← (unknown author)      Fetch .torrent → qBit submit
+    ↓                                            ↓
+Review queue ← (download complete)     Download watcher → Pipeline
+    ↓                                            ↓
+Metadata enrichment (MAM + 7 scrapers)    Stage for review
+    ↓                                            ↓
+Manual approval ─────────────────────→ CWA/Calibre sink
+```
+
+- **Backend:** FastAPI + SQLite (WAL mode) + aiosqlite
+- **Frontend:** Vite + React 18 + TypeScript
+- **Background jobs:** supervised asyncio tasks + APScheduler
+- **Auth:** bcrypt + itsdangerous signed cookies + Fernet-encrypted secrets
+
+## Configuration
+
+All configuration is managed through the web UI after first boot. Settings are persisted in `settings.json`; credentials are stored Fernet-encrypted in `hermeece_auth.db`.
+
+No sensitive values should be set as environment variables in production.
+
+## What Hermeece Does NOT Do
+
+- Support trackers other than MyAnonamouse
+- Replace your Calibre or CWA installation
+- Manage your VPN or torrent client networking
+- Pretend to be a general-purpose torrent manager
 
 ## License
 
-TBD
+Private — not yet open source.
