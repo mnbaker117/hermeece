@@ -101,11 +101,19 @@ def extract_format(category: str) -> str:
 def normalize_category(category: str) -> str:
     """Canonical form for MAM category strings.
 
-    Same pipeline as `normalize_author` minus the Calibre name swap.
+    Same pipeline as `normalize_author` minus the Calibre name swap,
+    with one addition: intra-word hyphens are stripped (not replaced
+    with space) so "E-Books" → "ebooks" matches the IRC announce
+    form "Ebooks". Hyphens surrounded by spaces (" - ") are replaced
+    with a single space to keep "Ebooks - Fantasy" → "ebooks fantasy".
     """
     if not category:
         return ""
     c = category.strip().translate(_TYPO_APOSTROPHES).lower()
+    # Replace " - " separators with space first (before stripping hyphens).
+    c = c.replace(" - ", " ")
+    # Strip remaining intra-word hyphens: "e-books" → "ebooks".
+    c = c.replace("-", "")
     c = _PUNCT_TO_SPACE_RX.sub(" ", c)
     c = _KEEP_RX.sub("", c)
     c = _WS_RX.sub(" ", c).strip()

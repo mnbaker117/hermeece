@@ -7,6 +7,7 @@ import { Btn } from "../components/Btn";
 import { Spin } from "../components/Spin";
 import { api } from "../api";
 import { useTheme } from "../theme";
+import { fmtNum, fmtBytes, fmtRatio } from "../lib/format";
 
 interface DashboardProps { onNav: (page: string) => void; }
 
@@ -22,14 +23,6 @@ interface MamStatusResponse {
 }
 interface AuthorOverviewResponse { counts: Record<string, number>; }
 interface DataCounts { [key: string]: number; }
-
-function fmtBytes(n: number | null): string {
-  if (n === null || n === undefined) return "—";
-  const units = ["B","KB","MB","GB","TB"];
-  let v = n; let i = 0;
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-  return `${v.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
-}
 
 export default function Dashboard({ onNav }: DashboardProps) {
   const t = useTheme();
@@ -83,10 +76,10 @@ export default function Dashboard({ onNav }: DashboardProps) {
       <div style={{ background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 16, padding: "28px 32px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 20 }}>
           <div>
-            <h1 style={{ fontSize: 28, fontWeight: 700, color: t.text, margin: 0 }}>Pipeline Status</h1>
-            <p style={{ fontSize: 14, color: t.textDim, marginTop: 6 }}>
+            <h1 style={{ fontSize: 30, fontWeight: 700, color: t.text, margin: 0 }}>Pipeline Status</h1>
+            <p style={{ fontSize: 15, color: t.textDim, marginTop: 6 }}>
               {health?.dispatcher_ready
-                ? `${grabs} total grabs · ${calibreAdds} books added to Calibre`
+                ? `${fmtNum(grabs)} total grabs · ${fmtNum(calibreAdds)} books added to Calibre`
                 : "Starting up…"}
             </p>
             {/* Status pills row */}
@@ -105,17 +98,17 @@ export default function Dashboard({ onNav }: DashboardProps) {
                 MAM · {mam.username}
               </div>
               {mam.classname && <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{mam.classname}</div>}
-              <div style={{ marginTop: 8, display: "flex", gap: 16, justifyContent: "flex-end" }}>
+              <div style={{ marginTop: 10, display: "flex", gap: 20, justifyContent: "flex-end" }}>
                 {mam.ratio !== null && (
                   <div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: mam.ratio >= 1 ? t.ok : t.warn }}>{mam.ratio.toFixed(1)}</div>
-                    <div style={{ fontSize: 10, color: t.textDim }}>Ratio</div>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: mam.ratio >= 1 ? t.ok : t.warn }}>{fmtRatio(mam.ratio)}</div>
+                    <div style={{ fontSize: 11, color: t.textDim }}>Ratio</div>
                   </div>
                 )}
                 {mam.wedges !== null && (
                   <div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: t.accent }}>{mam.wedges}</div>
-                    <div style={{ fontSize: 10, color: t.textDim }}>Wedges</div>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: t.accent }}>{fmtNum(mam.wedges)}</div>
+                    <div style={{ fontSize: 11, color: t.textDim }}>Wedges</div>
                   </div>
                 )}
               </div>
@@ -140,7 +133,7 @@ export default function Dashboard({ onNav }: DashboardProps) {
       )}
 
       {/* ── Stat Cards ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14 }}>
         <StatCard label="Books to Review" value={reviewCount} icon="📚" color={(reviewCount ?? 0) > 0 ? t.accent : t.textDim} nav={() => onNav("review")} highlight={(reviewCount ?? 0) > 0} />
         <StatCard label="New Authors" value={tentativeCount} icon="🔎" color={(tentativeCount ?? 0) > 0 ? t.warn : t.textDim} nav={() => onNav("tentative")} highlight={(tentativeCount ?? 0) > 0} />
         <StatCard label="Allowed" value={allowed} icon="✅" color={t.ok} nav={() => onNav("authors")} />
@@ -213,18 +206,18 @@ function StatCard({ label, value, icon, color, nav, highlight }: {
       onClick={nav}
       style={{
         background: t.bg2, border: `1px solid ${highlight ? color + "55" : t.border}`,
-        borderRadius: 12, padding: "18px 20px",
+        borderRadius: 12, padding: "20px 22px",
         cursor: nav ? "pointer" : "default",
         transition: "border-color 0.2s, transform 0.1s",
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 22 }}>{icon}</span>
-        <span style={{ fontSize: 26, fontWeight: 700, color }}>
-          {value === null ? <Spin size={18} /> : value}
+        <span style={{ fontSize: 26 }}>{icon}</span>
+        <span style={{ fontSize: 30, fontWeight: 700, color }}>
+          {value === null ? <Spin size={20} /> : typeof value === "number" ? fmtNum(value) : value}
         </span>
       </div>
-      <div style={{ fontSize: 12, color: t.textDim, marginTop: 8, fontWeight: 500 }}>{label}</div>
+      <div style={{ fontSize: 13, color: t.textDim, marginTop: 10, fontWeight: 500 }}>{label}</div>
     </div>
   );
 }

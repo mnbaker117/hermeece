@@ -129,7 +129,7 @@ function AppInner() {
         borderBottom: `1px solid ${theme.borderL}`,
       }}>
         <div style={{
-          maxWidth: 1120, margin: "0 auto", padding: "0 24px",
+          maxWidth: 1400, margin: "0 auto", padding: "0 24px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
           height: 64, gap: 10,
         }}>
@@ -166,6 +166,9 @@ function AppInner() {
             ))}
           </div>
 
+          {/* Separator between nav pages and icon cluster */}
+          <div style={{ width: 1, height: 28, background: theme.border, flexShrink: 0, marginLeft: 8, marginRight: 4 }} />
+
           {/* Right-side icon cluster: secondary pages + user actions */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
             <NavIcon page={page} target="filters" icon="🎯" title="Torrent Filters" onClick={() => nav("filters")} />
@@ -185,7 +188,7 @@ function AppInner() {
       </nav>
 
       {/* ── Main content ── */}
-      <main style={{ maxWidth: 1120, margin: "0 auto", padding: "28px 20px" }}>
+      <main style={{ maxWidth: 1400, margin: "0 auto", padding: "28px 24px" }}>
         <ErrorBoundary onReset={() => nav("dashboard")} key={page}>
           <div style={{ animation: "fade-in 0.2s ease-out" }}>
             {page === "dashboard" && <Dashboard onNav={nav} />}
