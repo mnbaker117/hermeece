@@ -38,8 +38,8 @@ function SF({ label, desc, example, children, warn, wide }: {
   return (
     <div style={{
       display: "grid",
-      gridTemplateColumns: wide ? "1fr" : "minmax(0, 1fr) minmax(200px, 340px)",
-      alignItems: "center", padding: "14px 0", borderBottom: `1px solid ${t.borderL}`, gap: "6px 20px",
+      gridTemplateColumns: wide ? "1fr" : "minmax(0, 1fr) minmax(180px, 300px)",
+      alignItems: "center", padding: "14px 0", borderBottom: `1px solid ${t.borderL}`, gap: "6px 16px",
     }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: t.text }}>{label}</div>
@@ -324,6 +324,7 @@ export default function SettingsPage() {
           <input value={(s.qbit_username as string) || ""} onChange={e => upd("qbit_username", e.target.value)} placeholder="admin" style={{ ...ist, width: 160 }} />
         </SF>
         {qbitCreds.map(c => <CredField key={c.key} item={c} onSaved={loadCreds} desc="WebUI login password for the download client." />)}
+        <QbitTestButton />
         <SF label="Watch Category" desc="Torrent category that Hermeece manages. All grabs receive this category; the budget watcher counts only torrents in this category." example='Default "[mam-reseed]" — the bracket convention keeps it visually distinct.'>
           <input value={(s.qbit_watch_category as string) || "[mam-reseed]"} onChange={e => upd("qbit_watch_category", e.target.value)} style={{ ...ist, width: 180 }} />
         </SF>
@@ -366,6 +367,28 @@ export default function SettingsPage() {
         <DataSection />
       </SSection>
     </div>
+  );
+}
+
+function QbitTestButton() {
+  const t = useTheme();
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  async function test() {
+    setBusy(true); setResult(null);
+    try {
+      const r = await api.post<{ ok: boolean; message: string }>("/v1/mam/test-qbit");
+      setResult(r.ok ? `✓ ${r.message}` : `✗ ${r.message}`);
+    } catch (e) { setResult(`✗ ${e}`); }
+    finally { setBusy(false); setTimeout(() => setResult(null), 8000); }
+  }
+  return (
+    <SF label="Test Connection" desc="Attempt a login to verify URL, username, and password are correct." warn="qBittorrent bans the IP after 5 failed login attempts (30-minute ban). Use sparingly.">
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Btn variant="ghost" onClick={test} disabled={busy}>{busy ? <Spin size={14} /> : "Test"}</Btn>
+        {result && <span style={{ fontSize: 11, color: result.startsWith("✓") ? t.ok : t.err, fontWeight: 600 }}>{result}</span>}
+      </div>
+    </SF>
   );
 }
 
