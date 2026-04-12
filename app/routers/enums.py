@@ -30,10 +30,18 @@ class CategoryItem(BaseModel):
     normalized: str
 
 
+class V2Enums(BaseModel):
+    media_types: list[dict]
+    main_categories: list[dict]
+    content_tags: list[dict]
+    languages: list[dict]
+
+
 class EnumsResponse(BaseModel):
     categories: list[CategoryItem]
     languages: list[str]
     formats: list[str]
+    v2: V2Enums
 
 
 class RefreshResponse(BaseModel):
@@ -56,10 +64,12 @@ def _to_item(c: mam_enums.CategoryEntry) -> CategoryItem:
 async def get_enums() -> EnumsResponse:
     cats = await mam_enums.get_categories()
     formats = await mam_enums.get_formats()
+    v2_raw = mam_enums.get_v2_enums()
     return EnumsResponse(
         categories=[_to_item(c) for c in cats],
         languages=mam_enums.get_languages(),
         formats=formats,
+        v2=V2Enums(**v2_raw),
     )
 
 

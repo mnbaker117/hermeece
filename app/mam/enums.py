@@ -44,6 +44,7 @@ from app.mam.cookie import _do_get
 _log = logging.getLogger("hermeece.mam.enums")
 
 _BUNDLED_CATEGORIES_PATH = Path(__file__).parent / "categories.json"
+_BUNDLED_V2_PATH = Path(__file__).parent / "categories_v2.json"
 
 # Languages MAM's web search form accepts. Kept lowercase for
 # direct comparison against `Announce.language`.
@@ -196,6 +197,32 @@ async def get_formats() -> list[str]:
         key = normalize_category(c.main_name)
         seen.setdefault(key, None)
     return list(seen.keys())
+
+
+def get_v2_enums() -> dict:
+    """Return the MAM v2 category system (bundled snapshot).
+
+    V2 is the upcoming category overhaul (expected 2026): 8 media
+    types instead of 4, Fiction/Nonfiction main split instead of
+    AudioBooks/E-Books/Musicology/Radio, and 61 multi-select content
+    tags replacing the old single-select subcategories.
+
+    Returned shape:
+      {"media_types": [...], "main_categories": [...],
+       "content_tags": [...], "languages": [...]}
+    """
+    cached = _cache.get("v2_enums")
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+    try:
+        with _BUNDLED_V2_PATH.open("rb") as f:
+            data = json.load(f)
+    except Exception:
+        _log.exception("mam.enums: bundled categories_v2.json unreadable")
+        data = {"media_types": [], "main_categories": [],
+                "content_tags": [], "languages": []}
+    _cache["v2_enums"] = data
+    return data
 
 
 async def refresh(token: str = "") -> int:
