@@ -400,7 +400,7 @@ async def _dispatch_with_decision(
 
         # Policy said grab. Consult the rate limiter — read current
         # budget + queue counters from the DB.
-        budget_used = await ledger_mod.count_active(db)
+        budget_used = await ledger_mod.count_effective(db)
         queue_size = await queue_mod.size(db)
 
         rate_decision = decide_grab_action(

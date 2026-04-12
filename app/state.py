@@ -126,6 +126,11 @@ _snatch_budget: Dict[str, Any] = {
     "queued": 0,
     "next_release_at": None,
     "last_updated_at": None,
+    # Number of qBit torrents in the watched category that Hermeece
+    # did NOT submit (manual adds, Autobrr, etc.). Refreshed by the
+    # budget watcher each tick. The dispatcher adds this to the
+    # ledger count to avoid over-committing the MAM snatch cap.
+    "qbit_extras": 0,
 }
 
 

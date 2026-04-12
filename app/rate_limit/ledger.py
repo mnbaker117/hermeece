@@ -125,6 +125,25 @@ async def count_active(db: aiosqlite.Connection) -> int:
     return int(row[0]) if row else 0
 
 
+async def count_effective(db: aiosqlite.Connection) -> int:
+    """Budget count INCLUDING manual qBit torrents Hermeece didn't submit.
+
+    Reads the ledger-active count and adds `state._snatch_budget["qbit_extras"]`,
+    which the budget watcher refreshes on every tick by diffing the
+    current qBit snapshot against the ledger. Between ticks the
+    cached number is a lower bound that drifts upward as new manual
+    adds arrive — safer than ignoring them entirely because the
+    budget watcher always reconciles on its next pass.
+    """
+    active = await count_active(db)
+    try:
+        from app import state as _state
+        extras = int(_state._snatch_budget.get("qbit_extras", 0) or 0)
+    except Exception:
+        extras = 0
+    return active + max(0, extras)
+
+
 async def list_active(db: aiosqlite.Connection) -> list[LedgerRow]:
     """Every row that's still counting against the budget, oldest first.
 

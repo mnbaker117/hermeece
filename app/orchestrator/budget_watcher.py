@@ -102,6 +102,19 @@ async def _tick_inner(deps: DispatcherDeps, db) -> TickResult:
     qbit_seen = len(qbit_torrents)
     snapshot = {t.hash: t.seeding_seconds for t in qbit_torrents if t.hash}
 
+    # Count manual/Autobrr adds — any torrent in the watched category
+    # that doesn't have a ledger row. The dispatcher adds this count
+    # to its own `count_active` read so the MAM snatch cap isn't
+    # over-committed when the user is actively manually adding books.
+    try:
+        known_hashes = {row.qbit_hash for row in await ledger_mod.list_active(db)}
+        extras = sum(1 for h in snapshot.keys() if h and h not in known_hashes)
+        from app import state as _state
+        _state._snatch_budget["qbit_extras"] = extras
+        _state._snatch_budget["last_updated_at"] = None  # touched; UI mirror
+    except Exception:
+        _log.exception("manual qBit extras count failed (non-fatal)")
+
     # ── Phase 1b: check for download completions ────────────
     # Build the richer snapshot that the download watcher needs.
     # Translate qBit's save_path from qBit's container namespace
@@ -158,7 +171,7 @@ async def _tick_inner(deps: DispatcherDeps, db) -> TickResult:
     pops_failed = 0
 
     while True:
-        budget_used = await ledger_mod.count_active(db)
+        budget_used = await ledger_mod.count_effective(db)
         if budget_used >= deps.budget_cap:
             break
 
