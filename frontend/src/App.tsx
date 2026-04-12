@@ -24,6 +24,8 @@ import AuthorsPage from "./pages/AuthorsPage";
 import Dashboard from "./pages/Dashboard";
 import DelayedPage from "./pages/DelayedPage";
 import FiltersPage from "./pages/FiltersPage";
+import IgnoredWeeklyPage from "./pages/IgnoredWeeklyPage";
+import LogsPage from "./pages/LogsPage";
 import MamPage from "./pages/MamPage";
 import MigrationPage from "./pages/MigrationPage";
 import ReviewPage from "./pages/ReviewPage";
@@ -47,6 +49,7 @@ const NAV: { id: string; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
   { id: "review", label: "Review queue" },
   { id: "tentative", label: "Tentative" },
+  { id: "ignored-weekly", label: "Ignored" },
   { id: "authors", label: "Authors" },
   { id: "filters", label: "Filters" },
   { id: "delayed", label: "Delayed" },
@@ -227,6 +230,26 @@ function AppInner() {
               color: theme.textDim,
             }}
           >
+            <button
+              onClick={() => nav("logs")}
+              title="Log viewer"
+              style={{
+                background: page === "logs" ? theme.bg4 : "transparent",
+                border: `1px solid ${theme.border}`,
+                color: page === "logs" ? theme.accent : theme.text2,
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                fontSize: 14,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 0,
+              }}
+            >
+              {"📋"}
+            </button>
             <ThemeToggleButton />
             <span>{auth.username}</span>
             <button
@@ -258,7 +281,9 @@ function AppInner() {
           {page === "dashboard" && <Dashboard onNav={nav} />}
           {page === "review" && <ReviewPage />}
           {page === "tentative" && <TentativePage />}
+          {page === "ignored-weekly" && <IgnoredWeeklyPage />}
           {page === "authors" && <AuthorsPage />}
+          {page === "logs" && <LogsPage />}
           {page === "filters" && <FiltersPage />}
           {page === "delayed" && <DelayedPage />}
           {page === "migration" && <MigrationPage />}

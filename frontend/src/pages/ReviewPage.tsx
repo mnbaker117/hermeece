@@ -85,10 +85,12 @@ export default function ReviewPage() {
     return () => clearInterval(iv);
   }, []);
 
-  async function approve(id: number) {
+  async function approve(id: number, metadata?: Record<string, unknown>) {
     setBusyId(id);
     try {
-      await api.post(`/v1/review/${id}/approve`, {});
+      await api.post(`/v1/review/${id}/approve`, {
+        metadata: metadata || null,
+      });
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -159,7 +161,7 @@ export default function ReviewPage() {
               key={item.id}
               item={item}
               busy={busyId === item.id}
-              onApprove={() => approve(item.id)}
+              onApprove={(meta) => approve(item.id, meta)}
               onReject={() => reject(item.id)}
             />
           ))}
@@ -177,24 +179,71 @@ function ReviewCard({
 }: {
   item: ReviewItem;
   busy: boolean;
-  onApprove: () => void;
+  onApprove: (metadata?: Record<string, unknown>) => void;
   onReject: () => void;
 }) {
   const theme = useTheme();
   const m = item.metadata;
   const e = m.enriched;
-  // Prefer enriched fields when available; fall back to embedded values.
-  const title = e?.title || m.title || item.book_filename;
-  const authors =
+  const [editing, setEditing] = useState(false);
+
+  // Resolved display values (enriched > embedded > fallback).
+  const resolvedTitle = e?.title || m.title || item.book_filename;
+  const resolvedAuthors =
     (e?.authors && e.authors.length > 0 ? e.authors.join(", ") : m.author) ||
     "Unknown author";
-  const series = e?.series || m.series;
-  const seriesIndex = e?.series_index ?? m.series_index;
-  const description = e?.description || m.description;
-  const isbn = e?.isbn || m.isbn;
-  const publisher = e?.publisher || m.publisher;
-  const pubDate = e?.pub_date || m.pub_date;
-  const pageCount = e?.page_count || m.page_count;
+  const resolvedSeries = e?.series || m.series || "";
+  const resolvedSeriesIndex = e?.series_index ?? m.series_index;
+  const resolvedDescription = e?.description || m.description || "";
+  const resolvedIsbn = e?.isbn || m.isbn || "";
+  const resolvedPublisher = e?.publisher || m.publisher || "";
+  const resolvedPubDate = e?.pub_date || m.pub_date || "";
+  const resolvedPageCount = e?.page_count || m.page_count;
+
+  // Edit state — initialized from resolved values when edit mode opens.
+  const [editTitle, setEditTitle] = useState(resolvedTitle);
+  const [editAuthors, setEditAuthors] = useState(resolvedAuthors);
+  const [editSeries, setEditSeries] = useState(resolvedSeries);
+  const [editSeriesIndex, setEditSeriesIndex] = useState(String(resolvedSeriesIndex ?? ""));
+  const [editIsbn, setEditIsbn] = useState(resolvedIsbn);
+  const [editPublisher, setEditPublisher] = useState(resolvedPublisher);
+
+  function startEdit() {
+    setEditTitle(resolvedTitle);
+    setEditAuthors(resolvedAuthors);
+    setEditSeries(resolvedSeries);
+    setEditSeriesIndex(String(resolvedSeriesIndex ?? ""));
+    setEditIsbn(resolvedIsbn);
+    setEditPublisher(resolvedPublisher);
+    setEditing(true);
+  }
+
+  function approveWithEdits() {
+    if (!editing) {
+      onApprove();
+      return;
+    }
+    const edits: Record<string, unknown> = {
+      title: editTitle,
+      author: editAuthors,
+      series: editSeries || null,
+      series_index: editSeriesIndex ? parseFloat(editSeriesIndex) : null,
+      isbn: editIsbn || null,
+      publisher: editPublisher || null,
+    };
+    onApprove(edits);
+  }
+
+  // Display values for non-edit mode.
+  const title = resolvedTitle;
+  const authors = resolvedAuthors;
+  const series = resolvedSeries;
+  const seriesIndex = resolvedSeriesIndex;
+  const description = resolvedDescription;
+  const isbn = resolvedIsbn;
+  const publisher = resolvedPublisher;
+  const pubDate = resolvedPubDate;
+  const pageCount = resolvedPageCount;
   const sourceLabel = e?.source ? `via ${e.source}` : null;
   const confidence = e?.confidence;
 
@@ -222,41 +271,35 @@ function ReviewCard({
             flexWrap: "wrap",
           }}
         >
-          <h3
-            style={{
-              fontSize: 17,
-              fontWeight: 700,
-              color: theme.text,
-              wordBreak: "break-word",
-            }}
-          >
-            {title}
-          </h3>
+          {editing ? (
+            <EditInput value={editTitle} onChange={setEditTitle} placeholder="Title" style={{ fontSize: 17, fontWeight: 700 }} />
+          ) : (
+            <h3 style={{ fontSize: 17, fontWeight: 700, color: theme.text, wordBreak: "break-word" }}>
+              {title}
+            </h3>
+          )}
           {sourceLabel && (
-            <span
-              style={{
-                fontSize: 11,
-                color: theme.textDim,
-                background: theme.bg3,
-                padding: "2px 8px",
-                borderRadius: 99,
-              }}
-            >
+            <span style={{ fontSize: 11, color: theme.textDim, background: theme.bg3, padding: "2px 8px", borderRadius: 99 }}>
               {sourceLabel}
-              {confidence !== undefined &&
-                ` · ${(confidence * 100).toFixed(0)}%`}
+              {confidence !== undefined && ` · ${(confidence * 100).toFixed(0)}%`}
             </span>
           )}
         </div>
-        <div style={{ fontSize: 14, color: theme.text2, marginTop: 2 }}>
-          {authors}
-        </div>
-        {series && (
-          <div style={{ fontSize: 13, color: theme.textDim, marginTop: 4 }}>
-            {series}
-            {seriesIndex !== undefined && seriesIndex !== null && ` #${seriesIndex}`}
-          </div>
+        {editing ? (
+          <EditInput value={editAuthors} onChange={setEditAuthors} placeholder="Author(s)" style={{ fontSize: 14 }} />
+        ) : (
+          <div style={{ fontSize: 14, color: theme.text2, marginTop: 2 }}>{authors}</div>
         )}
+        {editing ? (
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <EditInput value={editSeries} onChange={setEditSeries} placeholder="Series" style={{ flex: 1, fontSize: 13 }} />
+            <EditInput value={editSeriesIndex} onChange={setEditSeriesIndex} placeholder="#" style={{ width: 50, fontSize: 13 }} />
+          </div>
+        ) : series ? (
+          <div style={{ fontSize: 13, color: theme.textDim, marginTop: 4 }}>
+            {series}{seriesIndex !== undefined && seriesIndex !== null && ` #${seriesIndex}`}
+          </div>
+        ) : null}
 
         <dl
           style={{
@@ -268,9 +311,17 @@ function ReviewCard({
           }}
         >
           {pubDate && <Field label="Published">{pubDate}</Field>}
-          {publisher && <Field label="Publisher">{publisher}</Field>}
+          {editing ? (
+            <Field label="Publisher"><EditInput value={editPublisher} onChange={setEditPublisher} placeholder="Publisher" style={{ fontSize: 12, width: "100%" }} /></Field>
+          ) : publisher ? (
+            <Field label="Publisher">{publisher}</Field>
+          ) : null}
           {pageCount && <Field label="Pages">{pageCount}</Field>}
-          {isbn && <Field label="ISBN">{isbn}</Field>}
+          {editing ? (
+            <Field label="ISBN"><EditInput value={editIsbn} onChange={setEditIsbn} placeholder="ISBN" style={{ fontSize: 12, width: "100%" }} /></Field>
+          ) : isbn ? (
+            <Field label="ISBN">{isbn}</Field>
+          ) : null}
           <Field label="File">{item.book_filename}</Field>
           <Field label="Grab">#{item.grab_id}</Field>
         </dl>
@@ -306,9 +357,16 @@ function ReviewCard({
         <Btn
           variant="primary"
           disabled={busy}
-          onClick={onApprove}
+          onClick={approveWithEdits}
         >
-          {busy ? <Spin size={14} /> : "Approve"}
+          {busy ? <Spin size={14} /> : editing ? "Save & Approve" : "Approve"}
+        </Btn>
+        <Btn
+          variant={editing ? "ghost" : "secondary"}
+          disabled={busy}
+          onClick={() => editing ? setEditing(false) : startEdit()}
+        >
+          {editing ? "Cancel edit" : "Edit"}
         </Btn>
         <Btn variant="danger" disabled={busy} onClick={onReject}>
           Reject
@@ -336,6 +394,38 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </>
   );
 }
+
+function EditInput({
+  value,
+  onChange,
+  placeholder,
+  style,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  style?: React.CSSProperties;
+}) {
+  const theme = useTheme();
+  return (
+    <input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      style={{
+        padding: "4px 8px",
+        borderRadius: 6,
+        border: `1px solid ${theme.accent}55`,
+        background: theme.bg3,
+        color: theme.text,
+        outline: "none",
+        width: "100%",
+        ...style,
+      }}
+    />
+  );
+}
+
 
 function CoverThumb({ item }: { item: ReviewItem }) {
   const theme = useTheme();

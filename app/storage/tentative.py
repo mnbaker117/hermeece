@@ -211,6 +211,37 @@ async def record_ignored_seen(
     return cursor.lastrowid or 0
 
 
+async def list_ignored_grouped_by_author(
+    db: aiosqlite.Connection, *, days: int = 7
+) -> list[dict]:
+    """Group ignored-seen torrents by author for the weekly review.
+
+    Returns a list of {author_blob, count, torrents: [{torrent_name, mam_torrent_id, cover_path}]}.
+    """
+    cursor = await db.execute(
+        """
+        SELECT author_blob, mam_torrent_id, torrent_name, cover_path
+        FROM ignored_torrents_seen
+        WHERE seen_at >= datetime('now', ?)
+        ORDER BY author_blob, seen_at DESC
+        """,
+        (f"-{int(days)} days",),
+    )
+    rows = await cursor.fetchall()
+    groups: dict[str, dict] = {}
+    for r in rows:
+        author = str(r["author_blob"] or "")
+        if author not in groups:
+            groups[author] = {"author_blob": author, "count": 0, "torrents": []}
+        groups[author]["count"] += 1
+        groups[author]["torrents"].append({
+            "torrent_name": str(r["torrent_name"] or ""),
+            "mam_torrent_id": str(r["mam_torrent_id"] or ""),
+            "cover_path": r["cover_path"],
+        })
+    return sorted(groups.values(), key=lambda g: g["count"], reverse=True)
+
+
 async def list_ignored_seen_since(
     db: aiosqlite.Connection, *, hours: int
 ) -> list[IgnoredSeenRow]:

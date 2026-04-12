@@ -88,6 +88,17 @@ async def list_pending() -> TentativeListResponse:
         await db.close()
 
 
+@router.get("/ignored-weekly")
+async def ignored_weekly():
+    """Weekly ignored-author review: authors grouped with their rejected books."""
+    db = await get_db()
+    try:
+        groups = await tentative_storage.list_ignored_grouped_by_author(db, days=7)
+        return {"groups": groups}
+    finally:
+        await db.close()
+
+
 @router.post("/{tentative_id}/approve", response_model=TentativeActionResponse)
 async def approve(tentative_id: int) -> TentativeActionResponse:
     if state.dispatcher is None:
