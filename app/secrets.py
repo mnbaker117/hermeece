@@ -38,16 +38,12 @@ from app.auth_secret import get_auth_secret
 
 _log = logging.getLogger("hermeece.secrets")
 
-# Known secret keys and their descriptions for the UI.
+# Secret keys that are stored encrypted and never displayed.
+# Only genuinely sensitive values (passwords, tokens, cookies).
 SECRET_KEYS: dict[str, str] = {
     "mam_session_id": "MAM session cookie",
-    "mam_irc_nick": "MAM IRC nickname",
-    "mam_irc_account": "MAM IRC account (NickServ username)",
     "mam_irc_password": "MAM IRC password",
-    "qbit_url": "qBittorrent WebUI URL",
-    "qbit_username": "qBittorrent username",
     "qbit_password": "qBittorrent password",
-    "ntfy_url": "ntfy server URL",
     "hardcover_api_key": "Hardcover API Bearer token",
 }
 

@@ -45,6 +45,12 @@ _PATCHABLE_KEYS: frozenset[str] = frozenset({
     "excluded_formats",
     "allowed_languages",
     "excluded_uploaders",
+    # Non-secret connection settings (visible in Settings as plain text)
+    "ntfy_url",
+    "qbit_url",
+    "qbit_username",
+    "mam_irc_nick",
+    "mam_irc_account",
     # Policy engine
     "policy_vip_only",
     "policy_free_only",
@@ -77,6 +83,14 @@ _PATCHABLE_KEYS: frozenset[str] = frozenset({
     "daily_digest_enabled",
     "daily_digest_hour",
     "per_event_notifications",
+    "notify_on_grab",
+    "notify_on_download_complete",
+    "notify_on_pipeline_error",
+    "notify_daily_accepted",
+    "notify_daily_tentative",
+    "notify_daily_ignored",
+    "notify_weekly_digest",
+    "download_folder_structure",
     # Pipeline toggles
     "mam_irc_enabled",
     "pipeline_irc_enabled",
@@ -99,8 +113,6 @@ _SECRET_KEYS: frozenset[str] = frozenset({
     "mam_session_id",
     "mam_irc_password",
     "qbit_password",
-    "qbit_username",
-    "ntfy_url",
 })
 
 

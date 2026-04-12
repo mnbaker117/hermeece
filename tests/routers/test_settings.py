@@ -64,7 +64,8 @@ class TestGetSettings:
             assert "mam_session_id" not in body
             assert body["mam_session_id_configured"] is True
             assert body["qbit_password_configured"] is True
-            assert body["ntfy_url_configured"] is True
+            # ntfy_url is no longer a secret — it's a plain setting
+            assert "ntfy_url" in body
 
     async def test_non_secrets_visible(self, isolated_settings):
         async with await _client(_make_app()) as c:

@@ -198,3 +198,26 @@ async def replace_cookie(body: CookieRequest) -> ValidateResponse:
     else:
         _log.warning("MAM cookie replaced via UI but validation FAILED: %s", message)
     return ValidateResponse(ok=ok, message=message)
+
+
+@router.post("/test-notification", response_model=ValidateResponse)
+async def test_notification() -> ValidateResponse:
+    """Send a test notification via ntfy to verify the topic works."""
+    from app.notify import ntfy
+    settings = load_settings()
+    url = settings.get("ntfy_url", "") or ""
+    topic = settings.get("ntfy_topic", "") or ""
+    if not url:
+        return ValidateResponse(ok=False, message="ntfy URL not configured")
+    if not topic:
+        return ValidateResponse(ok=False, message="ntfy topic not configured")
+    ok = await ntfy.send(
+        url=url, topic=topic,
+        title="Hermeece Test",
+        message="If you see this, ntfy notifications are working!",
+        tags=["white_check_mark", "hermeece"],
+    )
+    return ValidateResponse(
+        ok=ok,
+        message="Test notification sent!" if ok else "Failed to send — check URL and topic",
+    )

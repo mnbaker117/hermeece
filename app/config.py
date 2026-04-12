@@ -284,6 +284,20 @@ DEFAULT_SETTINGS = {
     # and every download that finishes. Off by default — the digests
     # usually give enough signal without firehose-grade spam.
     "per_event_notifications": False,
+    # Granular notification type toggles.
+    "notify_on_grab": True,
+    "notify_on_download_complete": True,
+    "notify_on_pipeline_error": True,
+    "notify_daily_accepted": True,
+    "notify_daily_tentative": True,
+    "notify_daily_ignored": True,
+    "notify_weekly_digest": True,
+    # Download folder structure options.
+    # "monthly" = [YYYY-MM]/ subfolders (default)
+    # "yearly"  = [YYYY]/ subfolders
+    # "author"  = Author Name/ subfolders
+    # "flat"    = all in root download path
+    "download_folder_structure": "monthly",
 
     # ── Cron / scheduled jobs ───────────────────────────────
     # MAM keeps a session cookie alive as long as we make at least one
