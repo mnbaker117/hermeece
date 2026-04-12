@@ -17,11 +17,13 @@
 // without each call site having to handle 401s itself.
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import { theme } from "./theme";
+import { ThemeProvider, useTheme, useThemeControls } from "./theme";
 import { Spin } from "./components/Spin";
 import LoginPage from "./pages/LoginPage";
 import Dashboard from "./pages/Dashboard";
 import ReviewPage from "./pages/ReviewPage";
+import SettingsPage from "./pages/SettingsPage";
+import TentativePage from "./pages/TentativePage";
 
 interface AuthState {
   loading: boolean;
@@ -39,6 +41,8 @@ interface CheckResponse {
 const NAV: { id: string; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
   { id: "review", label: "Review queue" },
+  { id: "tentative", label: "Tentative" },
+  { id: "settings", label: "Settings" },
 ];
 
 function loadSavedPage(): string {
@@ -50,6 +54,15 @@ function loadSavedPage(): string {
 }
 
 export default function App() {
+  return (
+    <ThemeProvider>
+      <AppInner />
+    </ThemeProvider>
+  );
+}
+
+function AppInner() {
+  const theme = useTheme();
   const [auth, setAuth] = useState<AuthState>({
     loading: true,
     authenticated: false,
@@ -204,6 +217,7 @@ export default function App() {
               color: theme.textDim,
             }}
           >
+            <ThemeToggleButton />
             <span>{auth.username}</span>
             <button
               onClick={logout}
@@ -233,32 +247,45 @@ export default function App() {
         <div key={page} style={{ animation: "fade-in 0.2s ease-out" }}>
           {page === "dashboard" && <Dashboard onNav={nav} />}
           {page === "review" && <ReviewPage />}
-          {page === "tentative" && (
-            <PlaceholderPage
-              title="Tentative torrents"
-              hint="Coming in Phase 5b — stub for now."
-            />
-          )}
+          {page === "tentative" && <TentativePage />}
+          {page === "settings" && <SettingsPage />}
         </div>
       </main>
     </div>
   );
 }
 
-function PlaceholderPage({ title, hint }: { title: string; hint: string }) {
+// Small sun/moon/cloud glyph button that cycles through dark → dim → light.
+// The icon matches the CURRENT theme so the user knows which one they're in.
+function ThemeToggleButton() {
+  const theme = useTheme();
+  const { themeName, cycle } = useThemeControls();
+  const icon =
+    themeName === "dark" ? "🌙" : themeName === "dim" ? "⛅" : "☀️";
+  const next =
+    themeName === "dark" ? "Dim" : themeName === "dim" ? "Light" : "Dark";
   return (
-    <div>
-      <h1
-        style={{
-          fontSize: 24,
-          fontWeight: 700,
-          color: theme.text,
-          marginBottom: 4,
-        }}
-      >
-        {title}
-      </h1>
-      <p style={{ fontSize: 14, color: theme.textDim }}>{hint}</p>
-    </div>
+    <button
+      onClick={cycle}
+      title={`Theme: ${theme.name} — click for ${next}`}
+      aria-label="Cycle theme"
+      style={{
+        background: "transparent",
+        border: `1px solid ${theme.border}`,
+        color: theme.text2,
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        fontSize: 14,
+        lineHeight: 1,
+        cursor: "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 0,
+      }}
+    >
+      {icon}
+    </button>
   );
 }

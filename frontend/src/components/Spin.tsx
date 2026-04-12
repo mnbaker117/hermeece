@@ -1,6 +1,7 @@
-import { theme } from "../theme";
+import { useTheme } from "../theme";
 
 export function Spin({ size = 22 }: { size?: number }) {
+  const theme = useTheme();
   return (
     <div
       role="status"

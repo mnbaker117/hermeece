@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { theme } from "../theme";
+import { useTheme } from "../theme";
 
 export function Section({
   title,
@@ -12,6 +12,7 @@ export function Section({
   children: ReactNode;
   right?: ReactNode;
 }) {
+  const theme = useTheme();
   return (
     <section
       style={{

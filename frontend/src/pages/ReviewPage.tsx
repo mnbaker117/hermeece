@@ -19,7 +19,7 @@ import { Btn } from "../components/Btn";
 import { Section } from "../components/Section";
 import { Spin } from "../components/Spin";
 import { api } from "../api";
-import { theme } from "../theme";
+import { useTheme } from "../theme";
 
 interface ReviewItem {
   id: number;
@@ -64,6 +64,7 @@ interface ReviewListResponse {
 }
 
 export default function ReviewPage() {
+  const theme = useTheme();
   const [items, setItems] = useState<ReviewItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -179,6 +180,7 @@ function ReviewCard({
   onApprove: () => void;
   onReject: () => void;
 }) {
+  const theme = useTheme();
   const m = item.metadata;
   const e = m.enriched;
   // Prefer enriched fields when available; fall back to embedded values.
@@ -317,6 +319,7 @@ function ReviewCard({
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const theme = useTheme();
   return (
     <>
       <dt
@@ -335,6 +338,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function CoverThumb({ item }: { item: ReviewItem }) {
+  const theme = useTheme();
   // The cover lives on disk under review_staging_path. We don't have a
   // dedicated /api/v1/review/{id}/cover endpoint yet — that's a Phase 5b
   // task. For now we render a placeholder block when there's no cover

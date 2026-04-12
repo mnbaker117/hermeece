@@ -12,7 +12,7 @@ import { Section } from "../components/Section";
 import { Spin } from "../components/Spin";
 import { Btn } from "../components/Btn";
 import { api } from "../api";
-import { theme } from "../theme";
+import { useTheme } from "../theme";
 
 interface DashboardProps {
   onNav: (page: string) => void;
@@ -34,6 +34,7 @@ interface HealthResponse {
 }
 
 export default function Dashboard({ onNav }: DashboardProps) {
+  const theme = useTheme();
   const [reviewCount, setReviewCount] = useState<number | null>(null);
   const [tentativeCount, setTentativeCount] = useState<number | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -155,6 +156,7 @@ function StatCard({
   highlight?: boolean;
   tone?: "ok" | "dim";
 }) {
+  const theme = useTheme();
   const valueColor =
     tone === "ok"
       ? theme.ok

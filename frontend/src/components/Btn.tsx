@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { theme } from "../theme";
+import { useTheme } from "../theme";
 
 type Variant = "primary" | "secondary" | "danger" | "ghost";
 
@@ -16,6 +16,7 @@ export function Btn({
   style,
   ...rest
 }: BtnProps) {
+  const theme = useTheme();
   const palette: Record<Variant, { bg: string; fg: string; border: string }> = {
     primary: { bg: theme.accent, fg: theme.bg, border: theme.accent },
     secondary: { bg: theme.bg3, fg: theme.text2, border: theme.border },

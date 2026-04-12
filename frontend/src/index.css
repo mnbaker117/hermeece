@@ -7,8 +7,8 @@ html, body, #root {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  background: #0e0f13;
-  color: #e6e6e8;
+  background: transparent;
+  color: inherit;
   -webkit-font-smoothing: antialiased;
 }
 

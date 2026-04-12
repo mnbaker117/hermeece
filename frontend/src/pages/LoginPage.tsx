@@ -5,7 +5,7 @@ import { useState, type FormEvent } from "react";
 import { Btn } from "../components/Btn";
 import { Spin } from "../components/Spin";
 import { api, ApiError } from "../api";
-import { theme } from "../theme";
+import { useTheme } from "../theme";
 
 interface Props {
   firstRun: boolean;
@@ -13,6 +13,7 @@ interface Props {
 }
 
 export default function LoginPage({ firstRun, onLoginSuccess }: Props) {
+  const theme = useTheme();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -159,6 +160,7 @@ function Field({
   autoFocus?: boolean;
   autoComplete?: string;
 }) {
+  const theme = useTheme();
   return (
     <label
       style={{
