@@ -15,7 +15,7 @@ function SSection({ title, desc, defaultOpen = true, children }: {
   const t = useTheme();
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div style={{ background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 12, marginBottom: 16 }}>
+    <div style={{ background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 12, marginBottom: 16, breakInside: "avoid" }}>
       <div onClick={() => setOpen(!open)} style={{
         display: "flex", alignItems: "center", gap: 10, padding: "16px 24px",
         cursor: "pointer", userSelect: "none",
@@ -174,8 +174,8 @@ export default function SettingsPage() {
 
   const upd = (k: string, v: unknown) => setS(o => o ? { ...o, [k]: v } : o);
   const ist = { padding: "7px 12px", background: t.inp, border: `1px solid ${t.border}`, borderRadius: 6, color: t.text2, fontSize: 13, outline: "none" } as const;
-  // Number inputs need extra right padding so text doesn't overlap the spin arrows.
-  const nist = { ...ist, paddingRight: 6, textAlign: "right" as const } as const;
+  // Number inputs need generous right padding so text doesn't crowd the spin arrows.
+  const nist = { ...ist, paddingRight: 24, textAlign: "right" as const } as const;
 
   const save = async () => {
     setSaving(true); setMsg("");
@@ -204,7 +204,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="settings-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+      <div className="settings-grid" style={{ columnCount: 2, columnGap: 16 }}>
 
       <SSection title="Pipeline" desc="Master controls for each stage">
         <SF label="IRC Listener" desc="Connects to MAM's #announce channel and processes every new torrent through the filter gate." example="Disabling pauses all automatic grabbing. Manual injects still work.">
