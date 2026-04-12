@@ -136,6 +136,11 @@ DEFAULT_SETTINGS = {
     "excluded_formats": [],
     # Language gate. Normalized lowercase. Empty = accept all languages.
     "allowed_languages": ["english"],
+    # Uploaders whose torrents should NEVER be grabbed. Case-insensitive
+    # username match. Prevents downloading your own uploads — MAM would
+    # count that as a re-snatch. Default seeded with the operator's
+    # own username to avoid accidents.
+    "excluded_uploaders": [],
 
     # ── Grab policy (VIP / freeleech / wedge / ratio) ──────
     # These settings control the economic decision layer that runs

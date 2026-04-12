@@ -143,6 +143,19 @@ export default function SettingsPage() {
       </Section>
 
       <Section
+        title="Uploader exclusion"
+        subtitle="MAM usernames whose uploads should never be grabbed. Prevents downloading your own torrents."
+      >
+        <ListField
+          label="Excluded uploaders"
+          hint="One username per line. Case-insensitive."
+          field="excluded_uploaders"
+          value={(effective.excluded_uploaders as string[]) ?? []}
+          onChange={(v) => setField("excluded_uploaders", v)}
+        />
+      </Section>
+
+      <Section
         title="Snatch budget"
         subtitle="Rate limiting for the MAM active-snatches cap."
       >
@@ -344,6 +357,51 @@ function NumberField({
           fontSize: 14,
           outline: "none",
           textAlign: "right",
+        }}
+      />
+    </FieldShell>
+  );
+}
+
+function ListField({
+  label,
+  hint,
+  field,
+  value,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  field: string;
+  value: string[];
+  onChange: (v: string[]) => void;
+}) {
+  const theme = useTheme();
+  const text = value.join("\n");
+  return (
+    <FieldShell label={label} hint={hint} field={field} theme={theme}>
+      <textarea
+        value={text}
+        onChange={(e) => {
+          const lines = e.target.value
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          onChange(lines);
+        }}
+        rows={3}
+        placeholder="one per line"
+        style={{
+          width: 220,
+          padding: "8px 10px",
+          borderRadius: 8,
+          border: `1px solid ${theme.border}`,
+          background: theme.inp,
+          color: theme.text,
+          fontSize: 13,
+          fontFamily: "inherit",
+          resize: "vertical",
+          outline: "none",
         }}
       />
     </FieldShell>

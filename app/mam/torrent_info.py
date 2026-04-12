@@ -61,6 +61,8 @@ class TorrentInfo:
     description: str = ""
     language_id: str = ""
     filetype: str = ""
+    uploader_id: int = 0
+    uploader_name: str = ""
 
 
 # ─── In-memory cache ────────────────────────────────────────
@@ -152,6 +154,8 @@ async def get_torrent_info(
         description=str(item.get("description", "")),
         language_id=str(item.get("language", "")),
         filetype=str(item.get("filetype", "")),
+        uploader_id=_parse_ownership_id(item.get("ownership")),
+        uploader_name=_parse_ownership_name(item.get("ownership")),
     )
 
     _cache[torrent_id] = (now, info)
@@ -185,6 +189,26 @@ def _parse_json_field(value) -> dict:
         except (json.JSONDecodeError, TypeError):
             return {}
     return {}
+
+
+def _parse_ownership_id(value) -> int:
+    """Extract the uploader user ID from the `ownership` field.
+
+    MAM returns ownership as `[user_id, "username"]`.
+    """
+    if isinstance(value, list) and len(value) >= 1:
+        try:
+            return int(value[0])
+        except (ValueError, TypeError):
+            pass
+    return 0
+
+
+def _parse_ownership_name(value) -> str:
+    """Extract the uploader username from the `ownership` field."""
+    if isinstance(value, list) and len(value) >= 2:
+        return str(value[1])
+    return ""
 
 
 def _to_bool(value) -> bool:

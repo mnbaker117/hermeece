@@ -155,6 +155,11 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
     qbit_tags = [t.strip() for t in raw_tag.split(",") if t.strip()]
 
     enricher = _build_metadata_enricher(settings)
+    excluded_uploaders = frozenset(
+        u.strip().lower()
+        for u in (settings.get("excluded_uploaders") or [])
+        if u and u.strip()
+    )
     return DispatcherDeps(
         filter_config=_build_filter_config(settings),
         policy_config=PolicyConfig(
@@ -178,6 +183,7 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
         fetch_torrent=fetch_torrent,
         qbit=qbit,
         dry_run=bool(settings.get("dry_run", False)),
+        excluded_uploaders=excluded_uploaders,
         qbit_download_path=settings.get("qbit_download_path", ""),
         monthly_download_folders=bool(settings.get("monthly_download_folders", True)),
         qbit_path_prefix=settings.get("qbit_path_prefix", "/data"),

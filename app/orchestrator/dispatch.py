@@ -117,6 +117,12 @@ class DispatcherDeps:
     # Dry-run mode: run filter + policy but never fetch or submit.
     dry_run: bool = False
 
+    # Uploaders whose torrents should never be grabbed. Prevents
+    # downloading your own uploads (MAM counts that as a re-snatch).
+    # Case-insensitive match against the `ownership` field from the
+    # search API. Checked after the torrent_info lookup.
+    excluded_uploaders: frozenset[str] = field(default_factory=frozenset)
+
     # Policy engine config. Defaults to permissive (grab everything).
     policy_config: PolicyConfig = field(default_factory=PolicyConfig)
 
@@ -387,6 +393,28 @@ async def _dispatch_with_decision(
         # know from the announce, then enrich with the MAM APIs (both
         # cached, both fail-safe).
         eco_ctx = await _build_economic_context(deps, announce)
+
+        # Uploader exclusion check. Uses the cached torrent_info (zero
+        # extra cost) to see if this torrent was uploaded by someone on
+        # the excluded list. Prevents downloading your own uploads.
+        if deps.excluded_uploaders and deps.mam_token and announce.torrent_id:
+            try:
+                info = await get_torrent_info(
+                    announce.torrent_id, token=deps.mam_token, ttl=300
+                )
+                if info.uploader_name and info.uploader_name.lower() in deps.excluded_uploaders:
+                    _emit(deps, "excluded_uploader", {
+                        "torrent_id": announce.torrent_id,
+                        "uploader": info.uploader_name,
+                    })
+                    return DispatchResult(
+                        action="skip",
+                        reason=f"excluded_uploader:{info.uploader_name}",
+                        announce_id=announce_id,
+                    )
+            except TorrentInfoError:
+                pass  # fail-open: if we can't check, allow the grab
+
         policy_decision = evaluate_policy(eco_ctx, deps.policy_config)
 
         if policy_decision.action == "skip":

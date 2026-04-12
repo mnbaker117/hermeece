@@ -44,6 +44,7 @@ _PATCHABLE_KEYS: frozenset[str] = frozenset({
     "allowed_formats",
     "excluded_formats",
     "allowed_languages",
+    "excluded_uploaders",
     # Policy engine
     "policy_vip_only",
     "policy_free_only",
