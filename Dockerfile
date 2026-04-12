@@ -1,10 +1,24 @@
-# Hermeece Docker image — Phase 2 production build.
+# Hermeece Docker image — Phase 3 production build.
 #
 # Includes calibre CLI tools (~500MB) for the post-download pipeline
 # (calibredb add). The calibredb binary talks directly to a Calibre
 # library directory mounted as a volume — it does NOT need the
 # Calibre GUI or content server running.
+#
+# Two-stage build: a small node:lts stage compiles the React frontend
+# (Vite + TypeScript), then we copy `frontend/dist` into the Python
+# stage. This keeps the runtime image free of node_modules + npm.
 
+# ─── Stage 1: frontend build ───────────────────────────────────
+FROM node:22-alpine AS frontend-build
+WORKDIR /build
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+RUN npm run build
+
+
+# ─── Stage 2: python runtime ───────────────────────────────────
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -36,6 +50,10 @@ RUN pip install -r requirements.txt
 # via .dockerignore.
 COPY app ./app
 COPY pyproject.toml ./
+
+# Built frontend bundle from stage 1. main.py mounts this at runtime
+# from `frontend/dist` relative to the app directory.
+COPY --from=frontend-build /build/dist ./frontend/dist
 
 # Mount targets. /app/data for settings.json + hermeece.db, /calibre
 # for the Calibre library, /staging for the post-download staging area.

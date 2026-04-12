@@ -1,0 +1,264 @@
+// Hermeece app shell.
+//
+// Auth gating:
+//   loading                       → spinner
+//   !authenticated && first_run   → LoginPage in setup mode
+//   !authenticated && !first_run  → LoginPage in sign-in mode
+//   authenticated                 → main shell with nav + page slot
+//
+// Routing is handled with a `page` state variable rather than
+// react-router. The page count is small and a hash router would only
+// add weight; this matches the AthenaScout pattern. We persist the
+// last page in localStorage so reloads land on the same screen.
+//
+// The `hermeece:auth-required` window event is dispatched by api.ts
+// on any 401 response. We catch it here and drop back to login,
+// covering the "session expired while you were on the page" case
+// without each call site having to handle 401s itself.
+import { useEffect, useState } from "react";
+import { api } from "./api";
+import { theme } from "./theme";
+import { Spin } from "./components/Spin";
+import LoginPage from "./pages/LoginPage";
+import Dashboard from "./pages/Dashboard";
+import ReviewPage from "./pages/ReviewPage";
+
+interface AuthState {
+  loading: boolean;
+  authenticated: boolean;
+  firstRun: boolean;
+  username?: string;
+}
+
+interface CheckResponse {
+  authenticated: boolean;
+  first_run: boolean;
+  username?: string;
+}
+
+const NAV: { id: string; label: string }[] = [
+  { id: "dashboard", label: "Dashboard" },
+  { id: "review", label: "Review queue" },
+];
+
+function loadSavedPage(): string {
+  try {
+    return localStorage.getItem("hermeece_page") || "dashboard";
+  } catch {
+    return "dashboard";
+  }
+}
+
+export default function App() {
+  const [auth, setAuth] = useState<AuthState>({
+    loading: true,
+    authenticated: false,
+    firstRun: false,
+  });
+  const [page, setPage] = useState<string>(loadSavedPage);
+
+  async function checkAuth() {
+    try {
+      const r = await api.get<CheckResponse>("/auth/check");
+      setAuth({
+        loading: false,
+        authenticated: !!r.authenticated,
+        firstRun: !!r.first_run,
+        username: r.username,
+      });
+    } catch {
+      setAuth({
+        loading: false,
+        authenticated: false,
+        firstRun: false,
+      });
+    }
+  }
+
+  useEffect(() => {
+    checkAuth();
+    const onAuthRequired = () => {
+      setAuth((s) =>
+        s.authenticated
+          ? { loading: false, authenticated: false, firstRun: false }
+          : s,
+      );
+    };
+    window.addEventListener("hermeece:auth-required", onAuthRequired);
+    return () =>
+      window.removeEventListener("hermeece:auth-required", onAuthRequired);
+  }, []);
+
+  function nav(p: string) {
+    setPage(p);
+    try {
+      localStorage.setItem("hermeece_page", p);
+    } catch {
+      /* ignore */
+    }
+    window.scrollTo(0, 0);
+  }
+
+  async function logout() {
+    try {
+      await api.post("/auth/logout");
+    } catch {
+      /* ignore */
+    }
+    setAuth({
+      loading: false,
+      authenticated: false,
+      firstRun: false,
+    });
+  }
+
+  if (auth.loading) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: theme.bg,
+        }}
+      >
+        <Spin />
+      </div>
+    );
+  }
+
+  if (!auth.authenticated) {
+    return (
+      <LoginPage
+        firstRun={auth.firstRun}
+        onLoginSuccess={() => checkAuth()}
+      />
+    );
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: theme.bg }}>
+      <nav
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 50,
+          background: theme.bg + "ee",
+          backdropFilter: "blur(12px)",
+          borderBottom: `1px solid ${theme.borderL}`,
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 1120,
+            margin: "0 auto",
+            padding: "0 20px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            height: 56,
+            gap: 12,
+          }}
+        >
+          <button
+            onClick={() => nav("dashboard")}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              fontSize: 18,
+              fontWeight: 700,
+              color: theme.accent,
+              padding: 0,
+            }}
+          >
+            Hermeece
+          </button>
+          <div style={{ display: "flex", gap: 4, flex: 1, marginLeft: 16 }}>
+            {NAV.map((n) => (
+              <button
+                key={n.id}
+                onClick={() => nav(n.id)}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  fontSize: 14,
+                  fontWeight: 500,
+                  border: "none",
+                  cursor: "pointer",
+                  background: page === n.id ? theme.bg4 : "transparent",
+                  color: page === n.id ? theme.accent : theme.text2,
+                }}
+              >
+                {n.label}
+              </button>
+            ))}
+          </div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              fontSize: 13,
+              color: theme.textDim,
+            }}
+          >
+            <span>{auth.username}</span>
+            <button
+              onClick={logout}
+              style={{
+                background: "transparent",
+                border: `1px solid ${theme.border}`,
+                color: theme.text2,
+                padding: "6px 12px",
+                borderRadius: 8,
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <main
+        style={{
+          maxWidth: 1120,
+          margin: "0 auto",
+          padding: "28px 20px",
+        }}
+      >
+        <div key={page} style={{ animation: "fade-in 0.2s ease-out" }}>
+          {page === "dashboard" && <Dashboard onNav={nav} />}
+          {page === "review" && <ReviewPage />}
+          {page === "tentative" && (
+            <PlaceholderPage
+              title="Tentative torrents"
+              hint="Coming in Phase 5b — stub for now."
+            />
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function PlaceholderPage({ title, hint }: { title: string; hint: string }) {
+  return (
+    <div>
+      <h1
+        style={{
+          fontSize: 24,
+          fontWeight: 700,
+          color: theme.text,
+          marginBottom: 4,
+        }}
+      >
+        {title}
+      </h1>
+      <p style={{ fontSize: 14, color: theme.textDim }}>{hint}</p>
+    </div>
+  );
+}

@@ -22,7 +22,12 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app import state
 from app.clients.qbittorrent import QbitClient
@@ -50,6 +55,9 @@ from app.orchestrator.dispatch import DispatcherDeps, handle_announce
 from app.orchestrator.review_timeout import run_loop as review_timeout_loop
 from app.orchestrator.scheduler import build_scheduler
 from app.notify.digests import DigestContext
+from app.auth_db import init_auth_db
+from app.auth_sessions import SESSION_COOKIE_NAME, verify_session_token
+from app.routers.auth import router as auth_router
 from app.routers.enums import router as enums_router
 from app.routers.inject import router as inject_router
 from app.routers.review import router as review_router
@@ -278,6 +286,8 @@ async def lifespan(app: FastAPI):
     _log.info("Hermeece starting")
     await init_db()
     _log.info("Database initialized")
+    await init_auth_db()
+    _log.info("Auth database initialized")
 
     # Seed the MAM cookie rotation layer with whatever's in
     # settings.json right now. Every subsequent MAM API call will
@@ -552,6 +562,60 @@ app = FastAPI(
     version="0.0.1",
     lifespan=lifespan,
 )
+
+
+# ─── Authentication middleware ─────────────────────────────────
+# Routes that don't require authentication. Everything else under
+# /api/ requires a valid session cookie. The frontend SPA bundle
+# (anything not under /api/) is always public so the login page
+# can render before the user has a session.
+_PUBLIC_API_PATHS = frozenset({
+    "/api/health",
+    "/api/auth/setup",
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/check",
+})
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Enforce authentication on protected /api/* routes.
+
+    Requests outside /api/ pass through unchanged so the frontend
+    bundle (HTML, JS, CSS, images) loads without a cookie. API
+    requests in the public allowlist also pass through. Every other
+    API request must carry a valid signed session cookie.
+
+    Also forces `Cache-Control: no-store` on every /api/* response
+    so dynamic API payloads never get poisoned by stale cached HTML
+    from the SPA fallback.
+    """
+
+    async def dispatch(self, request, call_next):
+        path = request.url.path
+        if not path.startswith("/api/"):
+            return await call_next(request)
+        if path in _PUBLIC_API_PATHS:
+            response = await call_next(request)
+        else:
+            token = request.cookies.get(SESSION_COOKIE_NAME, "")
+            if verify_session_token(token) is None:
+                response = JSONResponse(
+                    status_code=401,
+                    content={"detail": "Authentication required"},
+                )
+            else:
+                response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
+app.add_middleware(AuthMiddleware)
+
+
+# Auth router is registered first by convention since it gates
+# everything else. The other routers are protected by the middleware.
+app.include_router(auth_router)
 app.include_router(enums_router)
 app.include_router(inject_router)
 app.include_router(review_router)
@@ -566,3 +630,56 @@ async def health():
         "service": "hermeece",
         "dispatcher_ready": state.dispatcher is not None,
     }
+
+
+# ─── Frontend SPA serving ──────────────────────────────────────
+# Mounts `frontend/dist` if it exists. Anything not under /api/
+# falls through to index.html so the SPA router can take over.
+# Top-level files (favicon.ico, icon.svg, etc.) are served from a
+# whitelist built at startup so user input is only ever used as a
+# dict key — path traversal is structurally impossible.
+_FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+
+if _FRONTEND_DIST.exists():
+    if (_FRONTEND_DIST / "assets").exists():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=_FRONTEND_DIST / "assets"),
+            name="assets",
+        )
+
+    _INDEX_HTML = (_FRONTEND_DIST / "index.html").resolve()
+    _SERVE_FE_FILES: dict[str, Path] = {
+        p.name: p.resolve() for p in _FRONTEND_DIST.iterdir() if p.is_file()
+    }
+
+    @app.get("/{path:path}")
+    async def serve_fe(path: str):
+        """SPA fallback handler.
+
+        Top-level files emitted by vite (index.html, favicon.ico,
+        icon.svg, etc.) are served from a startup-computed whitelist.
+        Anything else falls through to index.html so the React app
+        can take over client-side routing.
+
+        Two important guards:
+          1. Paths that look like API calls return a real 404 instead
+             of the SPA index. Without this, browsers cache index.html
+             against the API URL and silently break polling.
+          2. The SPA index is served with `Cache-Control: no-cache` so
+             the browser revalidates on every request. Hashed assets
+             under /assets/ remain cacheable via StaticFiles.
+        """
+        if path.startswith("api/") or path == "api":
+            raise HTTPException(status_code=404, detail="Not Found")
+        safe_file = _SERVE_FE_FILES.get(path)
+        if safe_file is not None:
+            return FileResponse(safe_file)
+        return FileResponse(_INDEX_HTML, headers={"Cache-Control": "no-cache"})
+else:
+    @app.get("/")
+    async def serve_fe_missing():
+        return {
+            "error": "Frontend not built. Run "
+                     "'cd frontend && npm install && npm run build' first.",
+        }
