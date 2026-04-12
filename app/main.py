@@ -48,6 +48,8 @@ from app.orchestrator.cookie_keepalive import run_loop as cookie_keepalive_loop
 from app.orchestrator.cookie_retry import run_loop as cookie_retry_loop
 from app.orchestrator.dispatch import DispatcherDeps, handle_announce
 from app.orchestrator.review_timeout import run_loop as review_timeout_loop
+from app.orchestrator.scheduler import build_scheduler
+from app.notify.digests import DigestContext
 from app.routers.enums import router as enums_router
 from app.routers.inject import router as inject_router
 from app.routers.review import router as review_router
@@ -149,6 +151,7 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
         category_routing=settings.get("category_routing", {}),
         ntfy_url=settings.get("ntfy_url", ""),
         ntfy_topic=settings.get("ntfy_topic", "hermeece"),
+        per_event_notifications=bool(settings.get("per_event_notifications", False)),
     )
 
 
@@ -386,8 +389,30 @@ async def lifespan(app: FastAPI):
     else:
         _log.info("Review-timeout loop disabled (review_queue_enabled=false)")
 
-    # Phase 3 wiring lands here:
-    #   - APScheduler with cookie_check / weekly_audit / daily_digest jobs
+    # APScheduler: daily + weekly digest jobs. Only starts if an
+    # ntfy URL is configured — no point running the scheduler just
+    # to send notifications into the void. The jobs do read even
+    # when ntfy is empty, but they skip the send.
+    if settings.get("daily_digest_enabled", True) and settings.get("ntfy_url"):
+        digest_ctx = DigestContext(
+            ntfy_url=settings.get("ntfy_url", ""),
+            ntfy_topic=settings.get("ntfy_topic", "hermeece"),
+            weekly_auto_promote_days=7,
+        )
+        scheduler = build_scheduler(
+            daily_digest_hour=int(settings.get("daily_digest_hour", 9)),
+            ctx=digest_ctx,
+        )
+        scheduler.start()
+        state.scheduler = scheduler
+        _log.info(
+            f"APScheduler started (daily digest hour="
+            f"{settings.get('daily_digest_hour', 9)}, weekly=Sun 23:30)"
+        )
+    else:
+        _log.info(
+            "APScheduler disabled (daily_digest_enabled=false or ntfy_url empty)"
+        )
 
     try:
         yield
@@ -427,6 +452,16 @@ async def lifespan(app: FastAPI):
                     )
             except Exception:
                 _log.exception("error flushing pending cookie rotation on shutdown")
+
+        # Stop APScheduler before cancelling tasks so its own jobs
+        # don't fire during teardown. wait=False so shutdown doesn't
+        # block on a currently-running digest send.
+        if state.scheduler is not None:
+            try:
+                state.scheduler.shutdown(wait=False)
+            except Exception:
+                _log.exception("error stopping APScheduler")
+            state.scheduler = None
 
         # Stop the IRC listener cleanly first so its run_forever
         # loop sees the stop signal and breaks out of any backoff

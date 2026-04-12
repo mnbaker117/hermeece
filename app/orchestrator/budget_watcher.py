@@ -151,6 +151,7 @@ async def _tick_inner(deps: DispatcherDeps, db) -> TickResult:
                         auto_train_enabled=deps.auto_train_enabled,
                         review_queue_enabled=deps.review_queue_enabled,
                         review_staging_path=deps.review_staging_path,
+                        per_event_notifications=deps.per_event_notifications,
                     )
                 except Exception:
                     _log.exception(

@@ -247,6 +247,10 @@ DEFAULT_SETTINGS = {
     "ntfy_topic": "hermeece",
     "daily_digest_enabled": True,
     "daily_digest_hour": 9,  # local time, 24h
+    # Per-event notifications: fire a ntfy for every grab submitted
+    # and every download that finishes. Off by default — the digests
+    # usually give enough signal without firehose-grade spam.
+    "per_event_notifications": False,
 
     # ── Cron / scheduled jobs ───────────────────────────────
     # MAM keeps a session cookie alive as long as we make at least one

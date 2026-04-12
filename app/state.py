@@ -107,6 +107,12 @@ _cookie_retry_task: Optional[asyncio.Task] = None
 _review_timeout_task: Optional[asyncio.Task] = None
 
 
+# ─── APScheduler ────────────────────────────────────────────
+# AsyncIOScheduler instance running the daily + weekly digest jobs.
+# Set by main.py's lifespan and torn down during shutdown.
+scheduler: Optional[Any] = None
+
+
 # ─── qBit poller state ──────────────────────────────────────
 _qbit_poll_task: Optional[asyncio.Task] = None
 _qbit_status: Dict[str, Any] = {

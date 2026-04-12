@@ -76,6 +76,7 @@ async def process_completion(
     auto_train_enabled: bool = True,
     review_queue_enabled: bool = False,
     review_staging_path: str = "",
+    per_event_notifications: bool = False,
 ) -> bool:
     """Drive one completed download through the pipeline.
 
@@ -101,6 +102,18 @@ async def process_completion(
         )
         if prep is None:
             return False
+
+        if per_event_notifications and ntfy_url and ntfy_topic:
+            try:
+                await ntfy.notify_download_complete(
+                    ntfy_url, ntfy_topic,
+                    event.torrent_name,
+                    prep.metadata.author or "",
+                )
+            except Exception:
+                _log.exception(
+                    "per-event notify_download_complete failed (non-fatal)"
+                )
 
         if review_queue_enabled:
             ok = await _stage_for_review(

@@ -153,6 +153,7 @@ class DispatcherDeps:
     category_routing: dict = field(default_factory=dict)
     ntfy_url: str = ""
     ntfy_topic: str = "hermeece"
+    per_event_notifications: bool = False
     auto_train_enabled: bool = True
 
     # Optional: an audit hook for tests / future observability.
@@ -637,6 +638,18 @@ async def _dispatch_with_decision(
             "submitted",
             {"grab_id": grab_id, "qbit_hash": qbit_hash},
         )
+
+        if deps.per_event_notifications and deps.ntfy_url:
+            try:
+                from app.notify import ntfy as _ntfy
+                await _ntfy.notify_grab(
+                    deps.ntfy_url, deps.ntfy_topic,
+                    announce.torrent_name,
+                    announce.author_blob,
+                    announce.category,
+                )
+            except Exception:
+                _log.exception("per-event notify_grab failed (non-fatal)")
         return DispatchResult(
             action="submit",
             reason="ok",
