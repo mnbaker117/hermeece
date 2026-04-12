@@ -156,6 +156,31 @@ export default function MigrationPage() {
           title="Step 1: Preview"
           subtitle="Scan your qBit torrents and compute where each should live."
         >
+          <div style={{
+            background: theme.warn + "14", border: `1px solid ${theme.warn}33`,
+            borderRadius: 10, padding: "14px 18px", marginBottom: 16,
+            fontSize: 13, lineHeight: 1.6, color: theme.text2,
+          }}>
+            <div style={{ fontWeight: 700, color: theme.warn, marginBottom: 6 }}>
+              ⚠ Before you start
+            </div>
+            <ol style={{ margin: 0, paddingLeft: 20 }}>
+              <li style={{ marginBottom: 4 }}>
+                <strong>Stop all torrents</strong> in qBittorrent first (<em>Select All → Stop</em>).
+                This prevents briefly spiking your active seeding count on MAM's tracker
+                during the move.
+              </li>
+              <li style={{ marginBottom: 4 }}>
+                Wait a minute for the tracker to register that your torrents are stopped
+                (your MAM "active snatches" count should drop).
+              </li>
+              <li>
+                Then come back here and run the migration. Hermeece will <strong>not</strong>{" "}
+                auto-resume stopped torrents — you can resume them in bulk from qBit after
+                the migration finishes and you've verified everything looks correct.
+              </li>
+            </ol>
+          </div>
           <Btn variant="primary" onClick={runPreview} disabled={busy}>
             {busy ? <Spin size={14} /> : "Scan torrents"}
           </Btn>

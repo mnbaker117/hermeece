@@ -297,28 +297,55 @@ async def execute(body: ExecuteRequest) -> ExecuteResponse:
 
 
 async def _migrate_one(qbit: QbitClient, torrent_hash: str, target_path: str) -> bool:
-    """Full pause → setLocation → recheck → poll → resume cycle for one torrent."""
-    if not await qbit.pause_torrent(torrent_hash):
-        return False
-    await asyncio.sleep(1)
+    """Relocate one torrent: pause → setLocation → recheck → poll → resume.
 
+    Handles already-stopped torrents gracefully: if the torrent is
+    already paused/stopped before we start, we skip the pause step
+    and do NOT auto-resume after the move — the user explicitly
+    stopped it (e.g. following the pre-migration instructions) and
+    we should respect that. Only torrents that were actively seeding
+    when we paused them get resumed.
+    """
+    # Check current state to decide whether to pause/resume.
+    info = await qbit.get_torrent(torrent_hash)
+    if info is None:
+        return False
+
+    was_active = info.state.lower() not in (
+        "pausedup", "pauseddl", "stoppedup", "stoppeddl", "stopped",
+    )
+
+    # Only pause if it was actively running.
+    if was_active:
+        if not await qbit.pause_torrent(torrent_hash):
+            return False
+        await asyncio.sleep(1)
+
+    # Move to the new location.
     if not await qbit.set_location(torrent_hash, target_path):
-        await qbit.resume_torrent(torrent_hash)
+        if was_active:
+            await qbit.resume_torrent(torrent_hash)
         return False
     await asyncio.sleep(1)
 
+    # Recheck to verify the files are intact at the new location.
     if not await qbit.recheck_torrent(torrent_hash):
-        await qbit.resume_torrent(torrent_hash)
+        if was_active:
+            await qbit.resume_torrent(torrent_hash)
         return False
 
     # Poll until recheck completes (state exits "checkingUP"/"checkingDL").
     for _ in range(120):
         await asyncio.sleep(2)
-        info = await qbit.get_torrent(torrent_hash)
-        if info is None:
+        check_info = await qbit.get_torrent(torrent_hash)
+        if check_info is None:
             break
-        if "checking" not in info.state.lower():
+        if "checking" not in check_info.state.lower():
             break
 
-    await qbit.resume_torrent(torrent_hash)
+    # Only resume if the torrent was active before we started.
+    # If the user pre-stopped everything, leave them stopped.
+    if was_active:
+        await qbit.resume_torrent(torrent_hash)
+
     return True
