@@ -1,11 +1,7 @@
-// Dashboard — pipeline status hub, modeled after AthenaScout's Dashboard.
+// Dashboard — pipeline control center.
 //
-// Three sections:
-//   1. Hero: Pipeline health bar (IRC, qBit, cookie, enricher status)
-//   2. Stat cards: pending review, tentative, authors, MAM ratio/wedges
-//   3. Quick actions: review books, manage authors, run tools
-//
-// 30s polling — "see new books arrive without F5" is the UX bar.
+// Modeled after AthenaScout's dashboard: hero status, stat grid,
+// pipeline health, quick actions with context, and tools sidebar.
 import { useEffect, useState } from "react";
 import { Btn } from "../components/Btn";
 import { Spin } from "../components/Spin";
@@ -19,10 +15,21 @@ interface TentativeListResponse { items: unknown[]; }
 interface HealthResponse { status: string; dispatcher_ready: boolean; }
 interface MamStatusResponse {
   cookie_configured: boolean; validation_ok: boolean;
-  ratio: number | null; wedges: number | null;
-  username: string | null; error: string | null;
+  ratio: number | null; wedges: number | null; seedbonus: number | null;
+  username: string | null; classname: string | null;
+  uploaded_bytes: number | null; downloaded_bytes: number | null;
+  error: string | null;
 }
 interface AuthorOverviewResponse { counts: Record<string, number>; }
+interface DataCounts { [key: string]: number; }
+
+function fmtBytes(n: number | null): string {
+  if (n === null || n === undefined) return "—";
+  const units = ["B","KB","MB","GB","TB"];
+  let v = n; let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
+}
 
 export default function Dashboard({ onNav }: DashboardProps) {
   const t = useTheme();
@@ -31,38 +38,37 @@ export default function Dashboard({ onNav }: DashboardProps) {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [mam, setMam] = useState<MamStatusResponse | null>(null);
   const [authors, setAuthors] = useState<AuthorOverviewResponse | null>(null);
+  const [counts, setCounts] = useState<DataCounts | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
       try {
-        const [review, tentative, h, mamS, auth] = await Promise.all([
+        const [review, tentative, h, mamS, auth, cnt] = await Promise.all([
           api.get<ReviewListResponse>("/v1/review"),
           api.get<TentativeListResponse>("/v1/tentative"),
           api.get<HealthResponse>("/health"),
           api.get<MamStatusResponse>("/v1/mam/status").catch(() => null),
           api.get<AuthorOverviewResponse>("/v1/authors").catch(() => null),
+          api.get<DataCounts>("/v1/data/counts").catch(() => null),
         ]);
         if (cancelled) return;
         setReviewCount(review.pending_count);
         setTentativeCount(tentative.items.length);
-        setHealth(h);
-        setMam(mamS);
-        setAuthors(auth);
+        setHealth(h); setMam(mamS); setAuthors(auth); setCounts(cnt);
         setError(null);
-      } catch (e) {
-        if (cancelled) return;
-        setError(String(e));
-      }
+      } catch (e) { if (!cancelled) setError(String(e)); }
     };
     refresh();
     const iv = setInterval(refresh, 30_000);
     return () => { cancelled = true; clearInterval(iv); };
   }, []);
 
-  const allowedCount = authors?.counts?.allowed ?? 0;
-  const ignoredCount = authors?.counts?.ignored ?? 0;
+  const allowed = authors?.counts?.allowed ?? 0;
+  const ignored = authors?.counts?.ignored ?? 0;
+  const grabs = counts?.grabs ?? 0;
+  const calibreAdds = counts?.calibre_additions ?? 0;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -73,86 +79,108 @@ export default function Dashboard({ onNav }: DashboardProps) {
         </div>
       )}
 
-      {/* ── Hero: Pipeline Health ── */}
-      <div style={{ background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 16, padding: 28 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+      {/* ── Hero: Pipeline Status ── */}
+      <div style={{ background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 16, padding: "28px 32px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 20 }}>
           <div>
-            <h1 style={{ fontSize: 26, fontWeight: 700, color: t.text, margin: 0 }}>Pipeline</h1>
-            <p style={{ fontSize: 14, color: t.textDim, marginTop: 4 }}>
-              {health?.dispatcher_ready ? "All systems operational" : "Starting up…"}
+            <h1 style={{ fontSize: 28, fontWeight: 700, color: t.text, margin: 0 }}>Pipeline Status</h1>
+            <p style={{ fontSize: 14, color: t.textDim, marginTop: 6 }}>
+              {health?.dispatcher_ready
+                ? `${grabs} total grabs · ${calibreAdds} books added to Calibre`
+                : "Starting up…"}
             </p>
+            {/* Status pills row */}
+            <div style={{ display: "flex", gap: 20, marginTop: 16, flexWrap: "wrap" }}>
+              <StatusPill label="Dispatcher" ok={health?.dispatcher_ready ?? false} />
+              <StatusPill label="IRC Listener" ok={health?.dispatcher_ready ?? false} />
+              <StatusPill label="MAM Cookie" ok={mam?.validation_ok ?? false} warn={mam?.cookie_configured === true && !mam?.validation_ok} />
+              <StatusPill label="Budget Watcher" ok={health?.dispatcher_ready ?? false} />
+            </div>
           </div>
+
+          {/* MAM account summary */}
           {mam?.username && (
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 13, color: t.textDim }}>MAM: {mam.username}</div>
-              {mam.ratio !== null && (
-                <div style={{ fontSize: 22, fontWeight: 700, color: mam.ratio >= 1 ? t.ok : t.warn }}>
-                  {mam.ratio.toFixed(1)} ratio
+            <div style={{ background: t.bg3, borderRadius: 12, padding: "16px 20px", minWidth: 200, textAlign: "right" }}>
+              <div style={{ fontSize: 12, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>
+                MAM · {mam.username}
+              </div>
+              {mam.classname && <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{mam.classname}</div>}
+              <div style={{ marginTop: 8, display: "flex", gap: 16, justifyContent: "flex-end" }}>
+                {mam.ratio !== null && (
+                  <div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: mam.ratio >= 1 ? t.ok : t.warn }}>{mam.ratio.toFixed(1)}</div>
+                    <div style={{ fontSize: 10, color: t.textDim }}>Ratio</div>
+                  </div>
+                )}
+                {mam.wedges !== null && (
+                  <div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: t.accent }}>{mam.wedges}</div>
+                    <div style={{ fontSize: 10, color: t.textDim }}>Wedges</div>
+                  </div>
+                )}
+              </div>
+              {(mam.uploaded_bytes || mam.downloaded_bytes) && (
+                <div style={{ fontSize: 11, color: t.textDim, marginTop: 8 }}>
+                  ↑ {fmtBytes(mam.uploaded_bytes)} · ↓ {fmtBytes(mam.downloaded_bytes)}
                 </div>
               )}
             </div>
           )}
         </div>
-        {/* Status indicators */}
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-          <StatusPill label="Dispatcher" ok={health?.dispatcher_ready ?? false} />
-          <StatusPill label="MAM Cookie" ok={mam?.validation_ok ?? false} warn={mam?.cookie_configured && !mam?.validation_ok} />
-          <StatusPill label="Enrichment" ok={true} label2="Active" />
-        </div>
       </div>
 
-      {/* ── Stat cards ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
-        <StatCard label="Pending Review" value={reviewCount} icon="📋" color={t.accent} nav={() => onNav("review")} />
-        <StatCard label="Tentative" value={tentativeCount} icon="❓" color={t.warn} nav={() => onNav("tentative")} />
-        <StatCard label="Allowed Authors" value={allowedCount} icon="✍" color={t.ok} nav={() => onNav("authors")} />
-        <StatCard label="Ignored Authors" value={ignoredCount} icon="🚫" color={t.textDim} nav={() => onNav("authors")} />
-        {mam?.wedges !== null && mam?.wedges !== undefined && (
-          <StatCard label="FL Wedges" value={mam.wedges} icon="🎫" color={t.accent} nav={() => onNav("mam")} />
-        )}
-        <StatCard
-          label="Cookie"
-          value={mam?.cookie_configured ? (mam.validation_ok ? "Valid" : "Stale") : "Missing"}
-          icon="🍪"
-          color={mam?.validation_ok ? t.ok : t.warn}
-          nav={() => onNav("mam")}
-        />
-      </div>
-
-      {/* ── MAM status bar (if connected) ── */}
+      {/* MAM warning banner */}
       {mam?.cookie_configured && mam?.error && (
-        <div style={{ background: t.warn + "18", border: `1px solid ${t.warn}33`, borderRadius: 12, padding: "12px 20px", fontSize: 13, color: t.warn }}>
-          ⚠ MAM: {mam.error}.{" "}
+        <div style={{ background: t.warn + "18", border: `1px solid ${t.warn}33`, borderRadius: 10, padding: "12px 20px", fontSize: 13, color: t.warn, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>⚠ MAM: {mam.error}</span>
           <button onClick={() => onNav("mam")} style={{ background: "none", border: "none", color: t.accent, cursor: "pointer", fontWeight: 600, fontSize: 13, textDecoration: "underline" }}>
-            Go to MAM Status
+            Fix →
           </button>
         </div>
       )}
 
+      {/* ── Stat Cards ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+        <StatCard label="Books to Review" value={reviewCount} icon="📚" color={(reviewCount ?? 0) > 0 ? t.accent : t.textDim} nav={() => onNav("review")} highlight={(reviewCount ?? 0) > 0} />
+        <StatCard label="New Authors" value={tentativeCount} icon="🔎" color={(tentativeCount ?? 0) > 0 ? t.warn : t.textDim} nav={() => onNav("tentative")} highlight={(tentativeCount ?? 0) > 0} />
+        <StatCard label="Allowed" value={allowed} icon="✅" color={t.ok} nav={() => onNav("authors")} />
+        <StatCard label="Ignored" value={ignored} icon="⛔" color={t.textDim} nav={() => onNav("authors")} />
+        <StatCard label="To Calibre" value={calibreAdds} icon="📖" color={t.ok} />
+        <StatCard label="Total Grabs" value={grabs} icon="📥" color={t.text2} />
+      </div>
+
       {/* ── Quick Actions + Tools ── */}
-      <div style={{ background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 12, padding: 20 }}>
-        <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-          <div style={{ flex: "1 1 320px" }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12 }}>
+      <div style={{ background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 12, padding: 24 }}>
+        <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+          {/* Quick Actions */}
+          <div style={{ flex: "1 1 340px" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 14 }}>
               Quick Actions
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <Btn variant="primary" onClick={() => onNav("review")}>
-                📋 Review Books {reviewCount ? `(${reviewCount})` : ""}
+                📚 Review Books {reviewCount ? `(${reviewCount})` : ""}
               </Btn>
               <Btn onClick={() => onNav("tentative")}>
-                ❓ Tentative {tentativeCount ? `(${tentativeCount})` : ""}
+                🔎 New Authors {tentativeCount ? `(${tentativeCount})` : ""}
               </Btn>
               <Btn onClick={() => onNav("authors")}>
-                ✍ Authors
+                👤 Author Lists
+              </Btn>
+              <Btn onClick={() => onNav("filters")}>
+                🎯 Edit Filters
               </Btn>
             </div>
           </div>
 
-          <div style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", gap: 6, borderLeft: `1px solid ${t.borderL}`, paddingLeft: 20, justifyContent: "center" }}>
-            <ToolButton label="Migration Wizard" icon="📦" onClick={() => onNav("migration")} />
-            <ToolButton label="Delayed Torrents" icon="⏳" onClick={() => onNav("delayed")} />
-            <ToolButton label="Filters" icon="🏷" onClick={() => onNav("filters")} />
+          {/* Tools */}
+          <div style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", gap: 8, borderLeft: `1px solid ${t.borderL}`, paddingLeft: 24, justifyContent: "center" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>
+              Tools
+            </div>
+            <ToolBtn label="Migration Wizard" icon="📦" onClick={() => onNav("migration")} />
+            <ToolBtn label="Delayed Torrents" icon="⏳" onClick={() => onNav("delayed")} />
+            <ToolBtn label="MAM Account" icon="📡" onClick={() => onNav("mam")} />
           </div>
         </div>
       </div>
@@ -160,53 +188,57 @@ export default function Dashboard({ onNav }: DashboardProps) {
   );
 }
 
-function StatusPill({ label, ok, warn, label2 }: { label: string; ok: boolean; warn?: boolean; label2?: string }) {
+function StatusPill({ label, ok, warn }: { label: string; ok: boolean; warn?: boolean }) {
   const t = useTheme();
   const color = ok ? t.ok : warn ? t.warn : t.textDim;
+  const text = ok ? "Online" : warn ? "Check" : "Offline";
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
-      <span style={{ fontSize: 13, color: t.text2, fontWeight: 500 }}>{label}</span>
-      <span style={{ fontSize: 11, color, fontWeight: 600 }}>{label2 || (ok ? "OK" : warn ? "Check" : "—")}</span>
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ width: 10, height: 10, borderRadius: "50%", background: color, boxShadow: ok ? `0 0 6px ${color}66` : "none" }} />
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: t.text2 }}>{label}</div>
+        <div style={{ fontSize: 11, color }}>{text}</div>
+      </div>
     </div>
   );
 }
 
-function StatCard({ label, value, icon, color, nav }: {
+function StatCard({ label, value, icon, color, nav, highlight }: {
   label: string; value: number | string | null; icon: string; color: string;
-  nav?: () => void;
+  nav?: () => void; highlight?: boolean;
 }) {
   const t = useTheme();
   return (
     <div
       onClick={nav}
       style={{
-        background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 12,
-        padding: "16px 18px", cursor: nav ? "pointer" : "default",
-        transition: "border-color 0.2s",
+        background: t.bg2, border: `1px solid ${highlight ? color + "55" : t.border}`,
+        borderRadius: 12, padding: "18px 20px",
+        cursor: nav ? "pointer" : "default",
+        transition: "border-color 0.2s, transform 0.1s",
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 20 }}>{icon}</span>
-        <span style={{ fontSize: 24, fontWeight: 700, color }}>
-          {value === null ? <Spin size={16} /> : value}
+        <span style={{ fontSize: 22 }}>{icon}</span>
+        <span style={{ fontSize: 26, fontWeight: 700, color }}>
+          {value === null ? <Spin size={18} /> : value}
         </span>
       </div>
-      <div style={{ fontSize: 12, color: t.textDim, marginTop: 6 }}>{label}</div>
+      <div style={{ fontSize: 12, color: t.textDim, marginTop: 8, fontWeight: 500 }}>{label}</div>
     </div>
   );
 }
 
-function ToolButton({ label, icon, onClick }: { label: string; icon: string; onClick: () => void }) {
+function ToolBtn({ label, icon, onClick }: { label: string; icon: string; onClick: () => void }) {
   const t = useTheme();
   return (
     <button onClick={onClick} style={{
       display: "flex", alignItems: "center", gap: 8,
       padding: "8px 14px", background: t.bg4, border: `1px solid ${t.border}`,
       borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 500,
-      color: t.text2, whiteSpace: "nowrap",
+      color: t.text2, whiteSpace: "nowrap", transition: "border-color 0.15s",
     }}>
-      {icon} {label}
+      <span style={{ fontSize: 16 }}>{icon}</span> {label}
     </button>
   );
 }

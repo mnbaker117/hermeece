@@ -37,10 +37,10 @@ interface CheckResponse {
 // Primary nav: the daily-driver pages. Kept short so the bar doesn't
 // overflow on narrow screens. Mirrors AthenaScout's 6-item main nav.
 const NAV: { id: string; label: string; icon: string }[] = [
-  { id: "review", label: "Review", icon: "📋" },
-  { id: "tentative", label: "Tentative", icon: "❓" },
-  { id: "ignored-weekly", label: "Ignored", icon: "🚫" },
-  { id: "authors", label: "Authors", icon: "✍" },
+  { id: "review", label: "Book Review", icon: "📚" },
+  { id: "tentative", label: "New Authors", icon: "🔎" },
+  { id: "ignored-weekly", label: "Weekly Ignored", icon: "📊" },
+  { id: "authors", label: "Author Lists", icon: "👤" },
 ];
 
 function loadSavedPage(): string {
@@ -129,14 +129,14 @@ function AppInner() {
         borderBottom: `1px solid ${theme.borderL}`,
       }}>
         <div style={{
-          maxWidth: 1120, margin: "0 auto", padding: "0 20px",
+          maxWidth: 1120, margin: "0 auto", padding: "0 24px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          height: 56, gap: 8,
+          height: 64, gap: 10,
         }}>
           {/* Logo / Dashboard link */}
           <button onClick={() => nav("dashboard")} style={{
             background: "none", border: "none", cursor: "pointer",
-            fontSize: 18, fontWeight: 700, color: theme.accent, padding: 0,
+            fontSize: 20, fontWeight: 700, color: theme.accent, padding: 0,
             flexShrink: 0, position: "relative", paddingBottom: 4,
           }}>
             Hermeece
@@ -146,37 +146,37 @@ function AppInner() {
           </button>
 
           {/* Primary nav items */}
-          <div style={{ display: "flex", gap: 2, flex: 1, marginLeft: 16, overflowX: "auto" }}>
+          <div style={{ display: "flex", gap: 4, flex: 1, marginLeft: 20, overflowX: "auto" }}>
             {NAV.map((n) => (
               <button
                 key={n.id}
                 onClick={() => nav(n.id)}
                 style={{
-                  padding: "8px 14px", borderRadius: 8, fontSize: 14,
+                  padding: "9px 16px", borderRadius: 8, fontSize: 15,
                   fontWeight: 500, border: "none", cursor: "pointer",
-                  display: "inline-flex", alignItems: "center", gap: 6,
-                  height: 36, whiteSpace: "nowrap", flexShrink: 0,
+                  display: "inline-flex", alignItems: "center", gap: 7,
+                  height: 40, whiteSpace: "nowrap", flexShrink: 0,
                   background: page === n.id ? theme.bg4 : "transparent",
                   color: page === n.id ? theme.accent : theme.text2,
                 }}
               >
-                <span style={{ fontSize: 15, lineHeight: 1 }}>{n.icon}</span>
+                <span style={{ fontSize: 17, lineHeight: 1 }}>{n.icon}</span>
                 {n.label}
               </button>
             ))}
           </div>
 
           {/* Right-side icon cluster: secondary pages + user actions */}
-          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-            <NavIcon page={page} target="filters" icon="🏷" title="Filters" onClick={() => nav("filters")} />
-            <NavIcon page={page} target="mam" icon="🔍" title="MAM Status" onClick={() => nav("mam")} />
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <NavIcon page={page} target="filters" icon="🎯" title="Torrent Filters" onClick={() => nav("filters")} />
+            <NavIcon page={page} target="mam" icon="📡" title="MAM Status" onClick={() => nav("mam")} />
             <NavIcon page={page} target="logs" icon="📝" title="Logs" onClick={() => nav("logs")} />
-            <NavIcon page={page} target="settings" icon="⚙" title="Settings" onClick={() => nav("settings")} />
+            <NavIcon page={page} target="settings" icon="⚙️" title="Settings" onClick={() => nav("settings")} />
             <ThemeToggleButton />
             <button onClick={logout} style={{
               background: "transparent", border: `1px solid ${theme.border}`,
-              color: theme.text2, padding: "6px 10px", borderRadius: 8,
-              fontSize: 11, cursor: "pointer", whiteSpace: "nowrap",
+              color: theme.text2, padding: "7px 12px", borderRadius: 8,
+              fontSize: 12, cursor: "pointer", whiteSpace: "nowrap",
             }}>
               Sign out
             </button>
@@ -215,11 +215,12 @@ function NavIcon({ page, target, icon, title, onClick }: {
       onClick={onClick}
       title={title}
       style={{
-        width: 36, height: 36, borderRadius: 8,
-        fontSize: 14, border: "none", cursor: "pointer",
+        width: 40, height: 40, borderRadius: 8,
+        fontSize: 20, border: "none", cursor: "pointer",
         background: page === target ? theme.bg4 : "transparent",
         color: page === target ? theme.accent : theme.text2,
         display: "inline-flex", alignItems: "center", justifyContent: "center",
+        transition: "background 0.15s",
       }}
     >
       {icon}
@@ -238,10 +239,11 @@ function ThemeToggleButton() {
       title={`Theme: ${theme.name} — click for ${next}`}
       aria-label="Cycle theme"
       style={{
-        width: 36, height: 36, borderRadius: 8,
-        fontSize: 14, border: "none", cursor: "pointer",
+        width: 40, height: 40, borderRadius: 8,
+        fontSize: 20, border: "none", cursor: "pointer",
         background: "transparent", color: theme.text2,
         display: "inline-flex", alignItems: "center", justifyContent: "center",
+        transition: "background 0.15s",
       }}
     >
       {icon}
