@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from app.mam.cookie import MAM_SEARCH_URL, _do_post
@@ -35,7 +35,15 @@ _CACHE_TTL = 120
 
 @dataclass(frozen=True)
 class TorrentInfo:
-    """Economic metadata for a single MAM torrent."""
+    """Metadata for a single MAM torrent.
+
+    The "economic" fields (vip/free/fl_vip/personal_freeleech) drive
+    the policy engine. The "bibliographic" fields (authors, narrators,
+    series, tags, description, language, filetype) are available from
+    the same search API call for zero extra cost — the enricher can
+    use them as a first-pass metadata source that's faster and more
+    authoritative than external scrapers.
+    """
 
     torrent_id: str
     vip: bool
@@ -45,6 +53,14 @@ class TorrentInfo:
     category: str       # e.g. "Audiobooks - Urban Fantasy"
     title: str
     size: str           # e.g. "6324306932" (bytes as string)
+    # Bibliographic fields — populated from the same search response.
+    authors: dict[str, str] = field(default_factory=dict)    # {mam_id: name}
+    narrators: dict[str, str] = field(default_factory=dict)  # {mam_id: name}
+    series: dict[str, list] = field(default_factory=dict)    # {mam_id: [name, index]}
+    tags: str = ""
+    description: str = ""
+    language_id: str = ""
+    filetype: str = ""
 
 
 # ─── In-memory cache ────────────────────────────────────────
@@ -129,6 +145,13 @@ async def get_torrent_info(
         category=str(item.get("catname", "")),
         title=str(item.get("title", item.get("name", ""))),
         size=str(item.get("size", "")),
+        authors=_parse_json_field(item.get("author_info")),
+        narrators=_parse_json_field(item.get("narrator_info")),
+        series=_parse_json_field(item.get("series_info")),
+        tags=str(item.get("tags", "")),
+        description=str(item.get("description", "")),
+        language_id=str(item.get("language", "")),
+        filetype=str(item.get("filetype", "")),
     )
 
     _cache[torrent_id] = (now, info)
@@ -141,6 +164,27 @@ async def get_torrent_info(
         info.personal_freeleech,
     )
     return info
+
+
+def _parse_json_field(value) -> dict:
+    """Decode author_info / narrator_info / series_info.
+
+    MAM returns these as JSON-encoded strings inside the JSON response:
+      "author_info": "{\"8234\": \"Kerrelyn Sparks\"}"
+      "series_info": "{\"67\": [\"Love at Stake\", \"01-16, 13.5\"]}"
+    Returns an empty dict on any parse failure.
+    """
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
 
 
 def _to_bool(value) -> bool:

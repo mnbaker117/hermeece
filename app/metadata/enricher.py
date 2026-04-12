@@ -39,6 +39,7 @@ from app.metadata.record import MetaRecord
 from app.metadata.scoring import score_match
 from app.metadata.sources.base import MetaSource
 from app.metadata.sources.goodreads import GoodreadsSource
+from app.metadata.sources.mam_search import MamSearchSource
 from app.metadata.sources.stubs import (
     AmazonSource,
     GoogleBooksSource,
@@ -49,10 +50,12 @@ from app.metadata.sources.stubs import (
 
 _log = logging.getLogger("hermeece.metadata.enricher")
 
-# Default provider priority from the user's spec (#21). The enricher
-# accepts a filtered subset at construction time so settings can turn
-# individual providers off.
+# Default provider priority. MAM runs first (free, authoritative,
+# uses the cached torrent_info response). External scrapers follow
+# in the user's spec order (#21) for fields MAM doesn't carry
+# (covers, page count, pub date, ISBN).
 DEFAULT_PRIORITY: tuple[str, ...] = (
+    "mam",
     "goodreads",
     "amazon",
     "hardcover",
@@ -88,6 +91,7 @@ class EnrichmentConfig:
 
 
 _SOURCE_REGISTRY: dict[str, type[MetaSource]] = {
+    MamSearchSource.name: MamSearchSource,
     GoodreadsSource.name: GoodreadsSource,
     AmazonSource.name: AmazonSource,
     HardcoverSource.name: HardcoverSource,
@@ -114,9 +118,19 @@ class MetadataEnricher:
             self._sources = _build_default_sources(config)
 
     async def enrich(
-        self, *, title: str, author: str
+        self,
+        *,
+        title: str,
+        author: str,
+        mam_torrent_id: str = "",
+        mam_token: str = "",
     ) -> Optional[MetaRecord]:
         """Run the priority list and return the best merged record.
+
+        When `mam_torrent_id` and `mam_token` are provided, the MAM
+        source gets an exact-ID lookup (confidence=1.0) for free —
+        it reuses the cached torrent_info from the policy engine.
+        External scrapers then fill any gaps (covers, page count, etc.)
 
         Returns None when every source returned None or errored.
         """
@@ -125,8 +139,19 @@ class MetadataEnricher:
         if not title and not author:
             return None
 
+        # Build the source list, injecting a MAM source with the
+        # torrent ID if available. This is per-call because the
+        # torrent ID changes for each book.
+        sources = list(self._sources)
+        if mam_torrent_id and mam_token:
+            mam_src = MamSearchSource(
+                mam_token=mam_token, torrent_id=mam_torrent_id
+            )
+            # Insert at the front so MAM runs first.
+            sources = [mam_src] + [s for s in sources if s.name != "mam"]
+
         merged: Optional[MetaRecord] = None
-        for src in self._sources:
+        for src in sources:
             result = await self._safe_search(src, title=title, author=author)
             if result is None:
                 continue

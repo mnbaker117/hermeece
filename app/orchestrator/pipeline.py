@@ -63,6 +63,15 @@ from app.storage import review_queue as review_storage
 _log = logging.getLogger("hermeece.orchestrator.pipeline")
 
 
+def _get_mam_token() -> str:
+    """Read the current MAM token from the cookie module's in-memory cache."""
+    try:
+        from app.mam.cookie import get_current_token
+        return get_current_token() or ""
+    except Exception:
+        return ""
+
+
 async def process_completion(
     db: aiosqlite.Connection,
     event: CompletionEvent,
@@ -282,6 +291,8 @@ async def _prepare_book(
             enriched = await metadata_enricher.enrich(
                 title=metadata.title,
                 author=metadata.author,
+                mam_torrent_id=grab.mam_torrent_id if grab else "",
+                mam_token=_get_mam_token(),
             )
         except Exception:
             _log.exception(
