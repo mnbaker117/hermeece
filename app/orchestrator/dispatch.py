@@ -48,6 +48,7 @@ from app.mam.torrent_meta import BencodeError, info_hash
 from app.mam.torrent_info import TorrentInfoError, get_torrent_info
 from app.mam.user_status import UserStatusError, get_user_status
 from app.orchestrator.auto_train import train_author
+from app.orchestrator.delayed import rotate_oldest_to_delayed
 from app.orchestrator.download_folders import (
     current_month_folder,
     ensure_folder_exists,
@@ -131,6 +132,13 @@ class DispatcherDeps:
     # mounts that host directory at "/downloads/[mam-complete]".
     qbit_path_prefix: str = "/data"
     local_path_prefix: str = "/downloads"
+
+    # Delayed-torrents folder: when the queue is full and a new
+    # grab arrives, the oldest queued grab gets rotated out into
+    # this directory as a raw .torrent file. FIFO eviction keeps
+    # the queue moving. Empty path disables the feature — new
+    # grabs that hit a full queue will drop as before.
+    delayed_torrents_path: str = ""
 
     # Phase 2 pipeline settings.
     staging_path: str = ""
@@ -402,6 +410,38 @@ async def _dispatch_with_decision(
             queue_max=deps.queue_max,
             queue_mode_enabled=deps.queue_mode_enabled,
         )
+
+        # Delayed-torrents rotation: if the queue is full and we
+        # would otherwise drop, try to evict the oldest queued grab
+        # into the delayed folder so this new grab can take its slot.
+        # Only attempts when delayed_torrents_path is configured.
+        if (
+            rate_decision.action == "drop"
+            and rate_decision.reason == "budget_full_queue_full"
+            and deps.delayed_torrents_path
+            and deps.queue_mode_enabled
+        ):
+            try:
+                evicted = await rotate_oldest_to_delayed(
+                    db,
+                    delayed_path=deps.delayed_torrents_path,
+                    fetch_torrent=deps.fetch_torrent,
+                    mam_token=deps.mam_token,
+                )
+            except Exception:
+                _log.exception("delayed rotation raised (non-fatal)")
+                evicted = None
+            if evicted is not None:
+                _emit(deps, "delayed_rotated", {"evicted_grab_id": evicted})
+                queue_size = await queue_mod.size(db)
+                rate_decision = decide_grab_action(
+                    budget_used=budget_used,
+                    budget_cap=deps.budget_cap,
+                    queue_size=queue_size,
+                    queue_max=deps.queue_max,
+                    queue_mode_enabled=deps.queue_mode_enabled,
+                )
+
         _emit(deps, "rate_decision", {"action": rate_decision.action})
 
         if rate_decision.action == "drop":

@@ -135,6 +135,7 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
         monthly_download_folders=bool(settings.get("monthly_download_folders", True)),
         qbit_path_prefix=settings.get("qbit_path_prefix", "/data"),
         local_path_prefix=settings.get("local_path_prefix", "/downloads"),
+        delayed_torrents_path=settings.get("delayed_torrents_path", ""),
         staging_path=settings.get("staging_path", ""),
         review_queue_enabled=bool(settings.get("review_queue_enabled", True)),
         review_staging_path=settings.get("review_staging_path", ""),
