@@ -161,6 +161,10 @@ function TentativeCard({
   const mamUrl = `https://www.myanonamouse.net/t/${item.mam_torrent_id}`;
   const when = new Date(item.created_at + "Z").toLocaleString();
 
+  const coverUrl = item.cover_path
+    ? `/api/v1/covers/${encodeURIComponent(item.cover_path)}`
+    : null;
+
   return (
     <article
       style={{
@@ -169,11 +173,28 @@ function TentativeCard({
         borderRadius: 12,
         padding: 16,
         display: "grid",
-        gridTemplateColumns: "1fr auto",
+        gridTemplateColumns: coverUrl ? "80px 1fr auto" : "1fr auto",
         gap: 16,
         animation: "slide-up 0.2s ease-out",
       }}
     >
+      {coverUrl && (
+        <img
+          src={coverUrl}
+          alt="Cover"
+          style={{
+            width: 80,
+            height: 120,
+            objectFit: "cover",
+            borderRadius: 6,
+            border: `1px solid ${theme.borderL}`,
+            background: theme.bg3,
+          }}
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = "none";
+          }}
+        />
+      )}
       <div style={{ minWidth: 0 }}>
         <div
           style={{

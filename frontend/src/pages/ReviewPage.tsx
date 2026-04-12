@@ -339,18 +339,54 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function CoverThumb({ item }: { item: ReviewItem }) {
   const theme = useTheme();
-  // The cover lives on disk under review_staging_path. We don't have a
-  // dedicated /api/v1/review/{id}/cover endpoint yet — that's a Phase 5b
-  // task. For now we render a placeholder block when there's no cover
-  // and the title initial when there is, so the layout doesn't shift
-  // when covers eventually arrive.
-  const hasCover = !!item.cover_path;
+  const mamCover = item.metadata.cover_mam as string | null;
+  const enrichedCover = item.metadata.cover_enriched as string | null;
+  const primaryCover = mamCover || item.cover_path || enrichedCover;
+
+  if (primaryCover) {
+    const coverUrl = `/api/v1/covers/${encodeURIComponent(primaryCover)}`;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, width: 120 }}>
+        <img
+          src={coverUrl}
+          alt="Cover"
+          style={{
+            width: 120,
+            height: 180,
+            objectFit: "cover",
+            borderRadius: 6,
+            border: `1px solid ${theme.borderL}`,
+            background: theme.bg3,
+          }}
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = "none";
+          }}
+        />
+        {mamCover && enrichedCover && mamCover !== enrichedCover && (
+          <a
+            href={`/api/v1/covers/${encodeURIComponent(enrichedCover)}`}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              fontSize: 10,
+              color: theme.accent,
+              textDecoration: "none",
+              textAlign: "center",
+            }}
+          >
+            Alt cover
+          </a>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
         width: 120,
         height: 180,
-        background: hasCover ? theme.bg3 : theme.bg3,
+        background: theme.bg3,
         border: `1px solid ${theme.borderL}`,
         borderRadius: 6,
         display: "flex",
@@ -360,7 +396,6 @@ function CoverThumb({ item }: { item: ReviewItem }) {
         fontSize: 36,
         fontWeight: 700,
       }}
-      title={hasCover ? `Cover at ${item.cover_path}` : "No cover yet"}
     >
       {(item.metadata.title || item.book_filename).slice(0, 1).toUpperCase()}
     </div>

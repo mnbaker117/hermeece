@@ -413,22 +413,49 @@ async def _stage_for_review(
         if prep.cleanup_temp and prep.temp_dir and prep.temp_dir.exists():
             shutil.rmtree(str(prep.temp_dir), ignore_errors=True)
 
-    # Fetch the cover image if the enricher returned a URL.
-    # Best-effort — a missing cover isn't a pipeline failure.
-    cover_path_str: Optional[str] = None
-    if prep.enriched and prep.enriched.cover_url:
+    # Fetch cover images. MAM poster is the primary (authoritative),
+    # Goodreads/enricher cover is the alternative the user can choose.
+    # Both are best-effort — missing covers aren't pipeline failures.
+    from app.metadata.covers import fetch_mam_cover
+
+    mam_cover_str: Optional[str] = None
+    enricher_cover_str: Optional[str] = None
+    grab = await grabs_storage.get_grab(db, event.grab_id)
+
+    # MAM cover (primary): uses the CDN poster endpoint + cookie auth.
+    if grab and grab.mam_torrent_id:
         try:
-            cover_path = await fetch_cover(
-                prep.enriched.cover_url,
+            mam_token = _get_mam_token()
+            mam_path = await fetch_mam_cover(
+                grab.mam_torrent_id,
                 dest_dir=target_dir,
-                basename="cover",
+                basename="cover-mam",
+                token=mam_token,
             )
-            if cover_path is not None:
-                cover_path_str = str(cover_path)
+            if mam_path is not None:
+                mam_cover_str = str(mam_path)
         except Exception:
             _log.exception(
-                "pipeline: cover fetch crashed for grab_id=%d", event.grab_id
+                "pipeline: MAM cover fetch crashed for grab_id=%d", event.grab_id
             )
+
+    # Enricher cover (alternative): from Goodreads or other scrapers.
+    if prep.enriched and prep.enriched.cover_url:
+        try:
+            enricher_path = await fetch_cover(
+                prep.enriched.cover_url,
+                dest_dir=target_dir,
+                basename="cover-enriched",
+            )
+            if enricher_path is not None:
+                enricher_cover_str = str(enricher_path)
+        except Exception:
+            _log.exception(
+                "pipeline: enricher cover fetch crashed for grab_id=%d", event.grab_id
+            )
+
+    # Use MAM cover as the primary, enricher as fallback.
+    cover_path_str = mam_cover_str or enricher_cover_str
 
     # Insert the review queue row. Metadata serialized as plain dict,
     # merged with the enriched source record so the UI can display
@@ -438,6 +465,9 @@ async def _stage_for_review(
     if prep.enriched is not None:
         enriched_dict = prep.enriched.to_dict()
         metadata_dict["enriched"] = enriched_dict
+    # Store both cover paths so the UI can show both + let user pick.
+    metadata_dict["cover_mam"] = mam_cover_str
+    metadata_dict["cover_enriched"] = enricher_cover_str
     await review_storage.create_entry(
         db,
         grab_id=event.grab_id,

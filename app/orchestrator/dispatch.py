@@ -322,6 +322,10 @@ async def _dispatch_with_decision(
             # the user approves via /api/v1/tentative/{id}/approve.
             if filter_decision.reason == "author_not_allowlisted":
                 try:
+                    # Fetch MAM cover for the tentative review UI.
+                    cover_path = await _fetch_mam_cover_for_skip(
+                        deps, announce.torrent_id
+                    )
                     await tentative_storage.upsert_tentative(
                         db,
                         mam_torrent_id=announce.torrent_id,
@@ -334,7 +338,7 @@ async def _dispatch_with_decision(
                         format=announce.filetype,
                         vip=announce.vip,
                         scraped_metadata=None,
-                        cover_path=None,
+                        cover_path=cover_path,
                     )
                     _emit(deps, "tentative_captured",
                           {"torrent_id": announce.torrent_id})
@@ -346,10 +350,12 @@ async def _dispatch_with_decision(
 
             # Tier 2 routing: if the author was on the ignored list,
             # stash a seen-row so the weekly review can show the user
-            # what they're turning down. Seeding cover / metadata
-            # scraping comes in Tier 4.
+            # what they're turning down.
             elif filter_decision.reason == "ignored_author":
                 try:
+                    cover_path = await _fetch_mam_cover_for_skip(
+                        deps, announce.torrent_id
+                    )
                     await tentative_storage.record_ignored_seen(
                         db,
                         mam_torrent_id=announce.torrent_id,
@@ -359,7 +365,7 @@ async def _dispatch_with_decision(
                             or "",
                         category=announce.category,
                         info_url=announce.info_url or None,
-                        cover_path=None,
+                        cover_path=cover_path,
                     )
                 except Exception:
                     _log.exception(
@@ -770,6 +776,39 @@ def _add_failure_state(result: AddResult) -> str:
     if kind == "duplicate":
         return grabs_storage.STATE_DUPLICATE_IN_QBIT
     return grabs_storage.STATE_FAILED_UNKNOWN
+
+
+async def _fetch_mam_cover_for_skip(
+    deps: DispatcherDeps, torrent_id: str
+) -> Optional[str]:
+    """Best-effort MAM cover fetch for tentative/ignored captures.
+
+    Downloads the MAM poster to a temp directory and returns the path.
+    Returns None on any failure — never blocks the dispatch loop.
+    The cover is stored alongside the tentative/ignored-seen DB row
+    so the review UI can show it.
+    """
+    if not deps.mam_token or not torrent_id:
+        return None
+    try:
+        from pathlib import Path
+        import tempfile
+        from app.metadata.covers import fetch_mam_cover
+
+        # Store covers in a predictable location under staging_path
+        # (or a temp dir if staging isn't configured).
+        base = Path(deps.staging_path) if deps.staging_path else Path(tempfile.gettempdir())
+        cover_dir = base / "tentative-covers" / f"tid-{torrent_id}"
+        path = await fetch_mam_cover(
+            torrent_id,
+            dest_dir=cover_dir,
+            basename="cover-mam",
+            token=deps.mam_token,
+        )
+        return str(path) if path else None
+    except Exception:
+        _log.debug("MAM cover fetch failed for tentative tid=%s", torrent_id)
+        return None
 
 
 def _emit(deps: DispatcherDeps, event: str, payload: dict) -> None:

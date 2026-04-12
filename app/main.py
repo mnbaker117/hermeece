@@ -60,6 +60,7 @@ from app.auth_sessions import SESSION_COOKIE_NAME, verify_session_token
 from app.routers.athenascout import router as athenascout_router
 from app.routers.auth import router as auth_router
 from app.routers.authors import router as authors_router
+from app.routers.covers import router as covers_router
 from app.routers.delayed import router as delayed_router
 from app.routers.enums import router as enums_router
 from app.routers.inject import router as inject_router
@@ -630,6 +631,7 @@ app.add_middleware(AuthMiddleware)
 app.include_router(athenascout_router)
 app.include_router(auth_router)
 app.include_router(authors_router)
+app.include_router(covers_router)
 app.include_router(delayed_router)
 app.include_router(enums_router)
 app.include_router(inject_router)

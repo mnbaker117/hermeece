@@ -101,6 +101,52 @@ async def fetch_cover(
     return dest
 
 
+async def fetch_mam_cover(
+    torrent_id: str,
+    *,
+    dest_dir: Path,
+    basename: str = "cover-mam",
+    token: str = "",
+) -> Optional[Path]:
+    """Download a MAM poster image using the cookie-aware client.
+
+    MAM's CDN requires the mam_id cookie, so we go through the
+    cookie module's `_do_get` which handles auth + rotation.
+
+    Returns the saved Path, or None on any failure.
+    """
+    if not torrent_id or not token:
+        return None
+
+    from app.mam.torrent_info import mam_cover_url
+    from app.mam.cookie import _do_get
+
+    url = mam_cover_url(torrent_id)
+    try:
+        resp = await _do_get(url, token=token, timeout=15)
+        if resp.status_code != 200:
+            _log.info("MAM cover fetch HTTP %d for tid=%s", resp.status_code, torrent_id)
+            return None
+        data = resp.content
+        if not data or len(data) < 100 or len(data) > _MAX_BYTES:
+            return None
+    except Exception as e:
+        _log.info("MAM cover fetch failed for tid=%s: %s", torrent_id, e)
+        return None
+
+    ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+    ext = _CONTENT_TYPE_EXT.get(ctype, ".jpg")
+
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / f"{basename}{ext}"
+        dest.write_bytes(data)
+        return dest
+    except Exception:
+        _log.exception("MAM cover write failed for tid=%s", torrent_id)
+        return None
+
+
 async def _safe_aclose(client: httpx.AsyncClient) -> None:
     try:
         await client.aclose()

@@ -226,5 +226,21 @@ def _to_bool(value) -> bool:
     return False
 
 
+def mam_cover_url(torrent_id: str) -> str:
+    """Build the CDN cover image URL for a torrent.
+
+    MAM serves poster images at a CDN endpoint that requires:
+      - the mam_id cookie (same as all MAM API calls)
+      - a current-epoch timestamp as a cache-buster segment
+      - the torrent ID
+
+    The image is typically JPEG. Returns the URL string — the
+    caller fetches it through the cookie-aware HTTP client.
+    """
+    import time
+    ts = int(time.time())
+    return f"https://cdn.myanonamouse.net/t/p/{ts}/large/{torrent_id}.jpeg"
+
+
 class TorrentInfoError(Exception):
     """Raised when the torrent-info lookup fails."""
