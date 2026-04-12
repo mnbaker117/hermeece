@@ -22,6 +22,8 @@ _log = logging.getLogger("hermeece.storage.pipeline")
 PIPE_STAGED = "staged"
 PIPE_EXTRACTED = "extracted"
 PIPE_METADATA_DONE = "metadata_done"
+# Pipeline stopped at the manual review queue. Awaits user action.
+PIPE_AWAITING_REVIEW = "awaiting_review"
 PIPE_SUNK = "sunk"
 PIPE_COMPLETE = "complete"
 PIPE_FAILED = "failed"

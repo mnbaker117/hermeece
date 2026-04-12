@@ -133,6 +133,9 @@ class DispatcherDeps:
 
     # Phase 2 pipeline settings.
     staging_path: str = ""
+    review_queue_enabled: bool = True
+    review_staging_path: str = ""
+    metadata_review_timeout_days: int = 14
     default_sink: str = "calibre"
     calibre_library_path: str = ""
     folder_sink_path: str = ""

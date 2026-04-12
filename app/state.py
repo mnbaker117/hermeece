@@ -101,6 +101,12 @@ _cookie_keepalive_task: Optional[asyncio.Task] = None
 _cookie_retry_task: Optional[asyncio.Task] = None
 
 
+# ─── Review-queue auto-add timeout state ────────────────────
+# Daily tick that promotes undecided review-queue items past
+# their grace period to the sink with bare metadata.
+_review_timeout_task: Optional[asyncio.Task] = None
+
+
 # ─── qBit poller state ──────────────────────────────────────
 _qbit_poll_task: Optional[asyncio.Task] = None
 _qbit_status: Dict[str, Any] = {

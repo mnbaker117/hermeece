@@ -135,6 +135,84 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     error             TEXT
 );
 
+-- Tier 2: mandatory manual review queue for downloaded books.
+-- Every successfully-downloaded book lands here after metadata
+-- enrichment and BEFORE being delivered to the Calibre/CWA sink.
+-- The user approves, rejects, or lets it time out (auto-add).
+CREATE TABLE IF NOT EXISTS book_review_queue (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    grab_id           INTEGER NOT NULL REFERENCES grabs(id) ON DELETE CASCADE,
+    pipeline_run_id   INTEGER REFERENCES pipeline_runs(id) ON DELETE SET NULL,
+    staged_path       TEXT NOT NULL,
+    book_filename     TEXT NOT NULL,
+    book_format       TEXT,
+    metadata_json     TEXT NOT NULL,
+    cover_path        TEXT,
+    status            TEXT NOT NULL DEFAULT 'pending',
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    decided_at        TEXT,
+    decision_note     TEXT
+);
+
+-- Tier 2: tentative torrent queue for announces that passed all
+-- filters except the author allow-list. We scrape metadata and
+-- stash the MAM URL so the user can decide later. No .torrent
+-- file is fetched until approval — saves snatch budget.
+CREATE TABLE IF NOT EXISTS tentative_torrents (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    mam_torrent_id      TEXT NOT NULL,
+    torrent_name        TEXT NOT NULL,
+    author_blob         TEXT NOT NULL,
+    category            TEXT,
+    language            TEXT,
+    format              TEXT,
+    vip                 INTEGER NOT NULL DEFAULT 0,
+    scraped_metadata_json TEXT,
+    cover_path          TEXT,
+    status              TEXT NOT NULL DEFAULT 'pending',
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    decided_at          TEXT
+);
+
+-- Tier 2: 3-tier author taxonomy. When a tentative torrent is
+-- REJECTED the relevant author goes here for one more pass of
+-- weekly review before being auto-promoted to ignored.
+CREATE TABLE IF NOT EXISTS authors_tentative_review (
+    name              TEXT PRIMARY KEY,
+    normalized        TEXT NOT NULL UNIQUE,
+    source            TEXT NOT NULL,
+    added_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Tier 2: capture ignored-author torrents for weekly review.
+-- When an announce is skipped because the author is on the
+-- ignored list, we still want to see the book (cover + metadata)
+-- in case the user changes their mind. One row per announce seen.
+CREATE TABLE IF NOT EXISTS ignored_torrents_seen (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    mam_torrent_id    TEXT NOT NULL,
+    torrent_name      TEXT NOT NULL,
+    author_blob       TEXT NOT NULL,
+    category          TEXT,
+    info_url          TEXT,
+    cover_path        TEXT,
+    seen_at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Tier 2: counter for books successfully added to Calibre/CWA.
+-- One row per successful sink delivery. Used by daily/weekly
+-- digests to report throughput without reparsing pipeline_runs.
+CREATE TABLE IF NOT EXISTS calibre_additions (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    grab_id           INTEGER NOT NULL REFERENCES grabs(id) ON DELETE CASCADE,
+    review_id         INTEGER REFERENCES book_review_queue(id) ON DELETE SET NULL,
+    title             TEXT,
+    author            TEXT,
+    sink_name         TEXT,
+    added_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    was_timeout       INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE INDEX IF NOT EXISTS idx_announces_seen_at ON announces(seen_at);
 CREATE INDEX IF NOT EXISTS idx_announces_decision ON announces(decision);
 CREATE INDEX IF NOT EXISTS idx_grabs_state ON grabs(state);
@@ -143,6 +221,12 @@ CREATE INDEX IF NOT EXISTS idx_snatch_ledger_released ON snatch_ledger(released_
 CREATE INDEX IF NOT EXISTS idx_pending_queue_priority ON pending_queue(priority, queued_at);
 CREATE INDEX IF NOT EXISTS idx_pipeline_runs_state ON pipeline_runs(state);
 CREATE INDEX IF NOT EXISTS idx_pipeline_runs_grab_id ON pipeline_runs(grab_id);
+CREATE INDEX IF NOT EXISTS idx_review_queue_status ON book_review_queue(status);
+CREATE INDEX IF NOT EXISTS idx_review_queue_created_at ON book_review_queue(created_at);
+CREATE INDEX IF NOT EXISTS idx_tentative_status ON tentative_torrents(status);
+CREATE INDEX IF NOT EXISTS idx_tentative_torrent_id ON tentative_torrents(mam_torrent_id);
+CREATE INDEX IF NOT EXISTS idx_ignored_seen_at ON ignored_torrents_seen(seen_at);
+CREATE INDEX IF NOT EXISTS idx_calibre_add_added_at ON calibre_additions(added_at);
 """
 
 

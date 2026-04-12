@@ -136,6 +136,8 @@ async def _tick_inner(deps: DispatcherDeps, db) -> TickResult:
                         ntfy_url=deps.ntfy_url,
                         ntfy_topic=deps.ntfy_topic,
                         auto_train_enabled=deps.auto_train_enabled,
+                        review_queue_enabled=deps.review_queue_enabled,
+                        review_staging_path=deps.review_staging_path,
                     )
                 except Exception:
                     _log.exception(

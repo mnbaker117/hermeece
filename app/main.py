@@ -47,7 +47,9 @@ from app.orchestrator.budget_watcher import run_loop as budget_watcher_loop
 from app.orchestrator.cookie_keepalive import run_loop as cookie_keepalive_loop
 from app.orchestrator.cookie_retry import run_loop as cookie_retry_loop
 from app.orchestrator.dispatch import DispatcherDeps, handle_announce
+from app.orchestrator.review_timeout import run_loop as review_timeout_loop
 from app.routers.inject import router as inject_router
+from app.routers.review import router as review_router
 
 # Configure logging once at import time. The verbose toggle gets re-applied
 # from settings.json after load_settings() runs in the lifespan.
@@ -133,6 +135,9 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
         qbit_path_prefix=settings.get("qbit_path_prefix", "/data"),
         local_path_prefix=settings.get("local_path_prefix", "/downloads"),
         staging_path=settings.get("staging_path", ""),
+        review_queue_enabled=bool(settings.get("review_queue_enabled", True)),
+        review_staging_path=settings.get("review_staging_path", ""),
+        metadata_review_timeout_days=int(settings.get("metadata_review_timeout_days", 14)),
         default_sink=settings.get("default_sink", "calibre"),
         calibre_library_path=settings.get("calibre_library_path", ""),
         folder_sink_path=settings.get("folder_sink_path", ""),
@@ -355,6 +360,29 @@ async def lifespan(app: FastAPI):
     else:
         _log.info("Cookie retry loop disabled (mam_session_id or qbit_url not configured)")
 
+    # Review-queue auto-add timeout: daily tick that promotes
+    # undecided items past their grace period to the sink. Only
+    # starts if the review queue is enabled (default True).
+    if settings.get("review_queue_enabled", True):
+        review_interval = float(
+            settings.get("review_timeout_check_interval_seconds", 86400)
+        )
+
+        async def _review_timeout_factory():
+            await review_timeout_loop(
+                deps_for_loops, interval_seconds=review_interval
+            )
+
+        state._review_timeout_task = state.supervised_task(
+            _review_timeout_factory, name="review-timeout"
+        )
+        _log.info(
+            f"Review-timeout loop started (interval={review_interval}s, "
+            f"grace={settings.get('metadata_review_timeout_days', 14)} days)"
+        )
+    else:
+        _log.info("Review-timeout loop disabled (review_queue_enabled=false)")
+
     # Phase 3 wiring lands here:
     #   - APScheduler with cookie_check / weekly_audit / daily_digest jobs
 
@@ -410,7 +438,13 @@ async def lifespan(app: FastAPI):
         # coroutines with restart-on-crash logic, so we need to
         # cancel the wrapper task itself — the inner coroutine sees
         # CancelledError and unwinds cleanly.
-        for task_attr in ("_irc_task", "_budget_watcher_task", "_cookie_keepalive_task", "_cookie_retry_task"):
+        for task_attr in (
+            "_irc_task",
+            "_budget_watcher_task",
+            "_cookie_keepalive_task",
+            "_cookie_retry_task",
+            "_review_timeout_task",
+        ):
             task = getattr(state, task_attr, None)
             if task is not None and not task.done():
                 task.cancel()
@@ -444,6 +478,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(inject_router)
+app.include_router(review_router)
 
 
 @app.get("/api/health")

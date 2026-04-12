@@ -221,9 +221,26 @@ DEFAULT_SETTINGS = {
     "calibre_library_path": "",
     # Staging directory where files land before metadata review + calibredb add.
     "staging_path": "",
+    # Mandatory manual-review queue. When enabled, every downloaded
+    # book lands in the review queue and waits for user approval
+    # before being delivered to the configured sink. Per the v1.0
+    # spec, this is ALWAYS on (power users can't skip review).
+    "review_queue_enabled": True,
+    # Directory where patched, ready-for-review book files are parked
+    # while awaiting user decision. Each pending review gets its own
+    # `grab-<id>/` subfolder. Distinct from staging_path, which is
+    # used only during metadata extraction.
+    "review_staging_path": "",
     # If review queue items aren't decided within N days, auto-add to Calibre
     # with whatever metadata the file ships with (no enrichment).
     "metadata_review_timeout_days": 14,
+    # How often the review-timeout job runs (seconds). A daily tick
+    # is plenty since the grace period is measured in days.
+    "review_timeout_check_interval_seconds": 86400,
+    # Delayed torrents folder: when the queue is full, the oldest
+    # queue item's .torrent bytes get dumped here (FIFO rotation)
+    # so a new accepted grab can take its slot without losing data.
+    "delayed_torrents_path": "",
 
     # ── Notifications ───────────────────────────────────────
     "ntfy_url": "",
