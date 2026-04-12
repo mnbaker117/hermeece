@@ -153,11 +153,30 @@ def _build_dispatcher(settings: dict, resolved_secrets: dict = None) -> Dispatch
     is in settings.json (which may be empty post-migration).
     """
     rs = resolved_secrets or {}
-    qbit = QbitClient(
-        base_url=rs.get("qbit_url") or settings.get("qbit_url", ""),
-        username=rs.get("qbit_username") or settings.get("qbit_username", ""),
-        password=rs.get("qbit_password") or settings.get("qbit_password", ""),
-    )
+    client_type = settings.get("download_client_type", "qbittorrent")
+    client_url = rs.get("qbit_url") or settings.get("qbit_url", "")
+    client_user = rs.get("qbit_username") or settings.get("qbit_username", "")
+    client_pass = rs.get("qbit_password") or settings.get("qbit_password", "")
+
+    if client_type == "transmission":
+        from app.clients.transmission import TransmissionClient
+        torrent_client = TransmissionClient(
+            base_url=client_url, username=client_user, password=client_pass,
+        )
+    elif client_type == "deluge":
+        from app.clients.deluge import DelugeClient
+        torrent_client = DelugeClient(
+            base_url=client_url, password=client_pass,
+        )
+    elif client_type == "rtorrent":
+        from app.clients.rtorrent import RtorrentClient
+        torrent_client = RtorrentClient(
+            base_url=client_url, username=client_user, password=client_pass,
+        )
+    else:
+        torrent_client = QbitClient(
+            base_url=client_url, username=client_user, password=client_pass,
+        )
     # qbit_tag is a single string in settings.json, but the client
     # accepts a list so the future VIP/freeleech work can stack
     # additional tier-specific tags ("hermeece-seed,vip" or
@@ -193,7 +212,7 @@ def _build_dispatcher(settings: dict, resolved_secrets: dict = None) -> Dispatch
         ) * 3600,
         db_factory=get_db,
         fetch_torrent=fetch_torrent,
-        qbit=qbit,
+        qbit=torrent_client,
         dry_run=bool(settings.get("dry_run", False)),
         excluded_uploaders=excluded_uploaders,
         qbit_download_path=settings.get("qbit_download_path", ""),

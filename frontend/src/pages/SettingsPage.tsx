@@ -318,8 +318,17 @@ export default function SettingsPage() {
         } />)}
       </SSection>
 
-      <SSection title="Download Client" desc="qBittorrent (more clients coming soon)">
-        <SF label="WebUI URL" desc="Full URL to the download client's Web API, including port." example='e.g. "http://10.0.10.20:8180" for qBittorrent'>
+      <SSection title="Download Client" desc="Torrent client connection">
+        <SF label="Client Type" desc="Which torrent client Hermeece should connect to. MAM supports qBittorrent, Transmission, Deluge, and rTorrent.">
+          <select value={(s.download_client_type as string) || "qbittorrent"} onChange={e => upd("download_client_type", e.target.value)}
+            style={{ ...ist, width: 180, cursor: "pointer", appearance: "auto" }}>
+            <option value="qbittorrent">qBittorrent</option>
+            <option value="transmission">Transmission</option>
+            <option value="deluge">Deluge</option>
+            <option value="rtorrent">rTorrent</option>
+          </select>
+        </SF>
+        <SF label="WebUI URL" desc="Full URL to the download client's Web API, including port." example='e.g. "http://10.0.10.20:8180" for qBittorrent, "http://host:9091" for Transmission'>
           <input value={(s.qbit_url as string) || ""} onChange={e => upd("qbit_url", e.target.value)} placeholder="http://10.0.10.20:8180" style={{ ...ist, width: 260 }} />
         </SF>
         <SF label="Username" desc="WebUI login username for the download client.">

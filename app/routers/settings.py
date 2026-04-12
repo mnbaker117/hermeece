@@ -92,6 +92,7 @@ _PATCHABLE_KEYS: frozenset[str] = frozenset({
     "notify_weekly_digest",
     "download_folder_structure",
     # Pipeline toggles
+    "download_client_type",
     "mam_irc_enabled",
     "pipeline_irc_enabled",
     "pipeline_qbit_watcher_enabled",

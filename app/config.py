@@ -180,7 +180,9 @@ DEFAULT_SETTINGS = {
     "snatch_full_mode": "queue",
     "snatch_queue_max": 200,
 
-    # ── qBittorrent ─────────────────────────────────────────
+    # ── Download client ──────────────────────────────────────
+    # Supported: qbittorrent, transmission, deluge, rtorrent
+    "download_client_type": "qbittorrent",
     "qbit_url": "",
     "qbit_username": "",
     "qbit_password": "",
