@@ -322,16 +322,6 @@ async def lifespan(app: FastAPI):
     if migrated:
         _log.info("Migrated %d secret(s) from settings.json to encrypted store", migrated)
 
-    # Seed the MAM cookie rotation layer with whatever's in
-    # settings.json right now. Every subsequent MAM API call will
-    # update this in-memory value automatically, and the debounced
-    # rotation callback writes changes back to disk.
-    # Seed the MAM cookie from the secret store (preferred) or settings.
-    mam_cookie = resolved_secrets.get("mam_session_id") or settings.get("mam_session_id", "")
-    set_current_token(mam_cookie)
-    set_rotation_callback(_rotation_callback)
-    _log.info("MAM cookie rotation handler wired")
-
     # Resolve secrets from the encrypted store for the dispatcher.
     from app.secrets import get_secret, SECRET_KEYS
     resolved_secrets = {}
@@ -339,6 +329,13 @@ async def lifespan(app: FastAPI):
         val = await get_secret(key)
         if val:
             resolved_secrets[key] = val
+
+    # Seed the MAM cookie from the secret store (preferred) or settings.
+    mam_cookie = resolved_secrets.get("mam_session_id") or settings.get("mam_session_id", "")
+    set_current_token(mam_cookie)
+    set_rotation_callback(_rotation_callback)
+    _log.info("MAM cookie rotation handler wired")
+
     state.dispatcher = _build_dispatcher(settings, resolved_secrets)
     _log.info("Dispatcher initialized")
 
