@@ -63,7 +63,7 @@ export default function SettingsPage() {
     setError(null);
     setOk(null);
     try {
-      const r = await api.post<PatchResponse>("/v1/settings", draft);
+      const r = await api.patch<PatchResponse>("/v1/settings", draft);
       if (r.rejected.length > 0) {
         setError(`Rejected keys: ${r.rejected.join(", ")}`);
       } else {

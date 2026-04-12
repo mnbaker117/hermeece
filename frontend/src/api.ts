@@ -54,6 +54,26 @@ export const api = {
     const r = await fetch(`/api${url}`, init);
     return (await check(r)) as T;
   },
+  patch: async <T>(
+    url: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<T> => {
+    const init: RequestInit = { method: "PATCH" };
+    if (body !== undefined) {
+      init.headers = { "Content-Type": "application/json" };
+      init.body = JSON.stringify(body);
+    }
+    if (signal) init.signal = signal;
+    const r = await fetch(`/api${url}`, init);
+    return (await check(r)) as T;
+  },
+  del: async <T>(url: string, signal?: AbortSignal): Promise<T> => {
+    const init: RequestInit = { method: "DELETE" };
+    if (signal) init.signal = signal;
+    const r = await fetch(`/api${url}`, init);
+    return (await check(r)) as T;
+  },
   isAbort: (e: unknown): boolean => {
     return (
       e instanceof DOMException && (e.name === "AbortError" || e.code === 20)

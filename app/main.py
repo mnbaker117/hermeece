@@ -58,6 +58,7 @@ from app.notify.digests import DigestContext
 from app.auth_db import init_auth_db
 from app.auth_sessions import SESSION_COOKIE_NAME, verify_session_token
 from app.routers.auth import router as auth_router
+from app.routers.authors import router as authors_router
 from app.routers.enums import router as enums_router
 from app.routers.inject import router as inject_router
 from app.routers.review import router as review_router
@@ -617,6 +618,7 @@ app.add_middleware(AuthMiddleware)
 # Auth router is registered first by convention since it gates
 # everything else. The other routers are protected by the middleware.
 app.include_router(auth_router)
+app.include_router(authors_router)
 app.include_router(enums_router)
 app.include_router(inject_router)
 app.include_router(review_router)

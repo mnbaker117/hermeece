@@ -136,6 +136,195 @@ async def promote_tentative_to_ignored(
     await db.commit()
 
 
+async def list_allowed(
+    db: aiosqlite.Connection,
+    *,
+    search: str = "",
+    limit: int = 1000,
+    offset: int = 0,
+) -> list[dict]:
+    return await _list_table(
+        db, "authors_allowed", search=search, limit=limit, offset=offset
+    )
+
+
+async def list_ignored(
+    db: aiosqlite.Connection,
+    *,
+    search: str = "",
+    limit: int = 1000,
+    offset: int = 0,
+) -> list[dict]:
+    return await _list_table(
+        db, "authors_ignored", search=search, limit=limit, offset=offset
+    )
+
+
+async def count_allowed(db: aiosqlite.Connection) -> int:
+    return await _count_table(db, "authors_allowed")
+
+
+async def count_ignored(db: aiosqlite.Connection) -> int:
+    return await _count_table(db, "authors_ignored")
+
+
+async def count_tentative_review(db: aiosqlite.Connection) -> int:
+    return await _count_table(db, "authors_tentative_review")
+
+
+async def add_allowed(
+    db: aiosqlite.Connection, name: str, *, source: str = "manual"
+) -> bool:
+    normalized = normalize_author(name)
+    if not normalized:
+        return False
+    try:
+        await db.execute(
+            """
+            INSERT INTO authors_allowed (name, normalized, source)
+            VALUES (?, ?, ?)
+            """,
+            (name.strip(), normalized, source),
+        )
+        await db.commit()
+        return True
+    except Exception:
+        return False
+
+
+async def remove_allowed(db: aiosqlite.Connection, name: str) -> int:
+    return await _delete_by_normalized(db, "authors_allowed", name)
+
+
+async def remove_ignored(db: aiosqlite.Connection, name: str) -> int:
+    return await _delete_by_normalized(db, "authors_ignored", name)
+
+
+async def move_allowed_to_ignored(
+    db: aiosqlite.Connection, name: str
+) -> bool:
+    """Atomically remove from allowed + insert into ignored."""
+    normalized = normalize_author(name)
+    if not normalized:
+        return False
+    cursor = await db.execute(
+        "SELECT name FROM authors_allowed WHERE normalized = ?",
+        (normalized,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return False
+    display = str(row["name"])
+    await db.execute(
+        "DELETE FROM authors_allowed WHERE normalized = ?", (normalized,)
+    )
+    await db.execute(
+        """
+        INSERT OR IGNORE INTO authors_ignored (name, normalized, source)
+        VALUES (?, ?, ?)
+        """,
+        (display, normalized, "manual_move"),
+    )
+    await db.commit()
+    return True
+
+
+async def move_ignored_to_allowed(
+    db: aiosqlite.Connection, name: str
+) -> bool:
+    normalized = normalize_author(name)
+    if not normalized:
+        return False
+    cursor = await db.execute(
+        "SELECT name FROM authors_ignored WHERE normalized = ?",
+        (normalized,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return False
+    display = str(row["name"])
+    await db.execute(
+        "DELETE FROM authors_ignored WHERE normalized = ?", (normalized,)
+    )
+    await db.execute(
+        """
+        INSERT OR IGNORE INTO authors_allowed (name, normalized, source)
+        VALUES (?, ?, ?)
+        """,
+        (display, normalized, "manual_move"),
+    )
+    await db.commit()
+    return True
+
+
+# ─── Internal helpers ──────────────────────────────────────────
+
+
+async def _list_table(
+    db: aiosqlite.Connection,
+    table: str,
+    *,
+    search: str,
+    limit: int,
+    offset: int,
+) -> list[dict]:
+    if search:
+        # Case-insensitive substring match against the normalized form,
+        # which is itself lowercase + punctuation-collapsed. Falls back
+        # to LIKE rather than FTS — the author lists are O(thousands)
+        # at most, well below where FTS pays for itself.
+        normalized_search = normalize_author(search) or search.lower()
+        cursor = await db.execute(
+            f"""
+            SELECT name, normalized, source, added_at
+            FROM {table}
+            WHERE normalized LIKE ?
+            ORDER BY added_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (f"%{normalized_search}%", limit, offset),
+        )
+    else:
+        cursor = await db.execute(
+            f"""
+            SELECT name, normalized, source, added_at
+            FROM {table}
+            ORDER BY added_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        )
+    rows = await cursor.fetchall()
+    return [
+        {
+            "name": str(r["name"]),
+            "normalized": str(r["normalized"]),
+            "source": str(r["source"] or ""),
+            "added_at": str(r["added_at"] or ""),
+        }
+        for r in rows
+    ]
+
+
+async def _count_table(db: aiosqlite.Connection, table: str) -> int:
+    cursor = await db.execute(f"SELECT COUNT(*) FROM {table}")
+    row = await cursor.fetchone()
+    return int(row[0]) if row else 0
+
+
+async def _delete_by_normalized(
+    db: aiosqlite.Connection, table: str, name: str
+) -> int:
+    normalized = normalize_author(name)
+    if not normalized:
+        return 0
+    cursor = await db.execute(
+        f"DELETE FROM {table} WHERE normalized = ?", (normalized,)
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
 async def list_tentative_review(
     db: aiosqlite.Connection,
 ) -> list[dict]:
