@@ -229,13 +229,60 @@ export default function SettingsPage() {
       </Section>
 
       <Section
-        title="Credentials"
-        subtitle="Secrets are entered via the server configuration for now. Dedicated editor coming before v1.0."
+        title="Pipeline controls"
+        subtitle="Enable or disable stages of the pipeline. Useful for testing, maintenance, or pausing while you're away."
       >
-        <SecretRow label="MAM session cookie" configured={!!effective.mam_session_id_configured} />
-        <SecretRow label="qBit password" configured={!!effective.qbit_password_configured} />
-        <SecretRow label="ntfy URL" configured={!!effective.ntfy_url_configured} />
+        <BoolField
+          label="IRC listener"
+          hint="Watch MAM #announce for new torrents. Disable to pause all automatic grabbing."
+          field="pipeline_irc_enabled"
+          value={(effective.mam_irc_enabled as boolean) ?? true}
+          onChange={(v) => setField("mam_irc_enabled", v)}
+        />
+        <BoolField
+          label="qBit watcher"
+          hint="Poll qBittorrent for download completions + budget reconciliation."
+          field="pipeline_qbit_watcher_enabled"
+          value={(effective.pipeline_qbit_watcher_enabled as boolean) ?? true}
+          onChange={(v) => setField("pipeline_qbit_watcher_enabled", v)}
+        />
+        <BoolField
+          label="Auto-train authors"
+          hint="Add co-authors to the allow list when a book is grabbed."
+          field="pipeline_auto_train_enabled"
+          value={(effective.pipeline_auto_train_enabled as boolean) ?? true}
+          onChange={(v) => setField("pipeline_auto_train_enabled", v)}
+        />
+        <BoolField
+          label="Notifications"
+          hint="Send daily/weekly digests and per-event ntfy notifications."
+          field="pipeline_notifications_enabled"
+          value={(effective.pipeline_notifications_enabled as boolean) ?? true}
+          onChange={(v) => setField("pipeline_notifications_enabled", v)}
+        />
+        <BoolField
+          label="Dry run"
+          hint="Run the filter + policy but never actually fetch .torrent files or talk to qBit."
+          field="dry_run"
+          value={effective.dry_run as boolean}
+          onChange={(v) => setField("dry_run", v)}
+        />
       </Section>
+
+      <Section
+        title="Sink configuration"
+        subtitle="Where approved books are delivered."
+      >
+        <ListField
+          label="Default sink"
+          hint="cwa, calibre, folder, or audiobookshelf."
+          field="default_sink"
+          value={[(effective.default_sink as string) || "cwa"]}
+          onChange={(v) => setField("default_sink", v[0] || "cwa")}
+        />
+      </Section>
+
+      <CredentialsSection />
 
       <div
         style={{
@@ -462,39 +509,100 @@ function FieldShell({
   );
 }
 
-function SecretRow({
-  label,
-  configured,
-}: {
-  label: string;
-  configured: boolean;
-}) {
+// Credentials section — loads from /api/v1/credentials and provides
+// inline set/clear for each secret key, grouped by category.
+function CredentialsSection() {
   const theme = useTheme();
+  interface CredItem { key: string; label: string; configured: boolean; }
+  const [items, setItems] = useState<CredItem[]>([]);
+  const [editKey, setEditKey] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [credBusy, setCredBusy] = useState(false);
+  const [credMsg, setCredMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ items: CredItem[] }>("/v1/credentials")
+      .then((r) => setItems(r.items))
+      .catch(() => {});
+  }, []);
+
+  async function saveCred(key: string) {
+    if (!editValue.trim()) return;
+    setCredBusy(true);
+    try {
+      await api.post(`/v1/credentials/${key}`, { value: editValue.trim() });
+      setCredMsg(`${key} saved.`);
+      setEditKey(null);
+      setEditValue("");
+      const r = await api.get<{ items: CredItem[] }>("/v1/credentials");
+      setItems(r.items);
+    } catch (e) { setCredMsg(String(e)); }
+    finally { setCredBusy(false); }
+  }
+
+  async function clearCred(key: string) {
+    setCredBusy(true);
+    try {
+      await api.del(`/v1/credentials/${key}`);
+      setCredMsg(`${key} cleared.`);
+      const r = await api.get<{ items: CredItem[] }>("/v1/credentials");
+      setItems(r.items);
+    } catch (e) { setCredMsg(String(e)); }
+    finally { setCredBusy(false); }
+  }
+
+  const groups: Record<string, CredItem[]> = {
+    "MAM": items.filter(i => i.key.startsWith("mam_")),
+    "qBittorrent": items.filter(i => i.key.startsWith("qbit_")),
+    "Notifications": items.filter(i => i.key === "ntfy_url"),
+    "API keys": items.filter(i => i.key === "hardcover_api_key"),
+  };
+
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "10px 0",
-        borderBottom: `1px solid ${theme.borderL}`,
-        fontSize: 13,
-      }}
-    >
-      <span style={{ color: theme.text2 }}>{label}</span>
-      <span
-        style={{
-          fontSize: 11,
-          padding: "3px 10px",
-          borderRadius: 99,
-          background: configured ? theme.ok + "22" : theme.textDim + "22",
-          color: configured ? theme.ok : theme.textDim,
-          fontWeight: 600,
-        }}
-      >
-        {configured ? "CONFIGURED" : "NOT SET"}
-      </span>
-    </div>
+    <>
+      {credMsg && <Banner tone="ok">{credMsg}</Banner>}
+      {Object.entries(groups).map(([groupName, groupItems]) => (
+        groupItems.length > 0 && (
+          <Section key={groupName} title={`${groupName} credentials`} subtitle="Stored encrypted. Values are never shown after saving.">
+            {groupItems.map(item => (
+              <div key={item.key} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, padding: "10px 0", borderBottom: `1px solid ${theme.borderL}` }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{item.label}</div>
+                  <div style={{ fontSize: 11, color: theme.textDim }}>{item.key}</div>
+                  {editKey === item.key && (
+                    <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                      <input
+                        type="password"
+                        value={editValue}
+                        onChange={e => setEditValue(e.target.value)}
+                        placeholder={`Enter ${item.label}…`}
+                        autoFocus
+                        style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: `1px solid ${theme.accent}55`, background: theme.bg3, color: theme.text, fontSize: 12, outline: "none" }}
+                      />
+                      <Btn variant="primary" disabled={credBusy || !editValue.trim()} onClick={() => saveCred(item.key)}>Save</Btn>
+                      <Btn variant="ghost" onClick={() => { setEditKey(null); setEditValue(""); }}>Cancel</Btn>
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                  <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 99, background: item.configured ? theme.ok + "22" : theme.textDim + "22", color: item.configured ? theme.ok : theme.textDim, fontWeight: 700 }}>
+                    {item.configured ? "SET" : "NOT SET"}
+                  </span>
+                  {editKey !== item.key && (
+                    <Btn variant="ghost" onClick={() => { setEditKey(item.key); setEditValue(""); setCredMsg(null); }}>
+                      {item.configured ? "Update" : "Set"}
+                    </Btn>
+                  )}
+                  {item.configured && editKey !== item.key && (
+                    <Btn variant="danger" disabled={credBusy} onClick={() => clearCred(item.key)}>Clear</Btn>
+                  )}
+                </div>
+              </div>
+            ))}
+          </Section>
+        )
+      ))}
+    </>
   );
 }
 

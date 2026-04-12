@@ -77,6 +77,16 @@ _PATCHABLE_KEYS: frozenset[str] = frozenset({
     "daily_digest_enabled",
     "daily_digest_hour",
     "per_event_notifications",
+    # Pipeline toggles
+    "mam_irc_enabled",
+    "pipeline_irc_enabled",
+    "pipeline_qbit_watcher_enabled",
+    "pipeline_auto_train_enabled",
+    "pipeline_notifications_enabled",
+    # Sink config
+    "cwa_ingest_path",
+    "calibre_library_path",
+    "folder_sink_path",
     # Operational
     "verbose_logging",
     "dry_run",

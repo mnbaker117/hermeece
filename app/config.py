@@ -307,6 +307,15 @@ DEFAULT_SETTINGS = {
     "weekly_audit_day": "sunday",
     "weekly_audit_hour": 3,
 
+    # ── Pipeline enable/disable toggles ──────────────────────
+    # Master switches for each stage of the pipeline. Disabling a
+    # stage skips it entirely — useful for testing, maintenance, or
+    # going away and not wanting automatic processing to fire.
+    "pipeline_irc_enabled": True,
+    "pipeline_qbit_watcher_enabled": True,
+    "pipeline_auto_train_enabled": True,
+    "pipeline_notifications_enabled": True,
+
     # ── Operational ─────────────────────────────────────────
     "verbose_logging": False,
     "dry_run": False,  # mirror of HERMEECE_DRY_RUN, runtime-toggleable
