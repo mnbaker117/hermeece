@@ -24,6 +24,10 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 ::-webkit-scrollbar-thumb { background: #2a2e3a; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #3a3f50; }
 
+@media (max-width: 900px) {
+  .settings-grid { grid-template-columns: 1fr !important; }
+}
+
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slide-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }

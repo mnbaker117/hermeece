@@ -204,6 +204,8 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      <div className="settings-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+
       <SSection title="Pipeline" desc="Master controls for each stage">
         <SF label="IRC Listener" desc="Connects to MAM's #announce channel and processes every new torrent through the filter gate." example="Disabling pauses all automatic grabbing. Manual injects still work.">
           <STog on={(s.mam_irc_enabled as boolean) ?? true} onToggle={() => upd("mam_irc_enabled", !(s.mam_irc_enabled ?? true))} label />
@@ -366,6 +368,8 @@ export default function SettingsPage() {
         </p>
         <DataSection />
       </SSection>
+
+      </div>{/* close settings-grid */}
     </div>
   );
 }
