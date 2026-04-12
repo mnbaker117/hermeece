@@ -344,6 +344,65 @@ class QbitClient:
         return None
 
 
+    # ─── Migration helpers ───────────────────────────────────
+
+    async def pause_torrent(self, torrent_hash: str) -> bool:
+        """POST /api/v2/torrents/pause."""
+        if not await self._ensure_logged_in():
+            return False
+        try:
+            resp = await self._client.post(
+                "/api/v2/torrents/pause",
+                data={"hashes": torrent_hash},
+            )
+            return resp.status_code == 200
+        except httpx.HTTPError as e:
+            _log.warning("qBit pause error: %s", e)
+            return False
+
+    async def resume_torrent(self, torrent_hash: str) -> bool:
+        """POST /api/v2/torrents/resume."""
+        if not await self._ensure_logged_in():
+            return False
+        try:
+            resp = await self._client.post(
+                "/api/v2/torrents/resume",
+                data={"hashes": torrent_hash},
+            )
+            return resp.status_code == 200
+        except httpx.HTTPError as e:
+            _log.warning("qBit resume error: %s", e)
+            return False
+
+    async def set_location(self, torrent_hash: str, location: str) -> bool:
+        """POST /api/v2/torrents/setLocation — move download to new path."""
+        if not await self._ensure_logged_in():
+            return False
+        try:
+            resp = await self._client.post(
+                "/api/v2/torrents/setLocation",
+                data={"hashes": torrent_hash, "location": location},
+            )
+            return resp.status_code == 200
+        except httpx.HTTPError as e:
+            _log.warning("qBit setLocation error: %s", e)
+            return False
+
+    async def recheck_torrent(self, torrent_hash: str) -> bool:
+        """POST /api/v2/torrents/recheck."""
+        if not await self._ensure_logged_in():
+            return False
+        try:
+            resp = await self._client.post(
+                "/api/v2/torrents/recheck",
+                data={"hashes": torrent_hash},
+            )
+            return resp.status_code == 200
+        except httpx.HTTPError as e:
+            _log.warning("qBit recheck error: %s", e)
+            return False
+
+
 def _parse_torrent(raw: dict) -> TorrentInfo:
     """Map a qBit torrent JSON object onto our TorrentInfo dataclass.
 

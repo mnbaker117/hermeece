@@ -57,11 +57,14 @@ from app.orchestrator.scheduler import build_scheduler
 from app.notify.digests import DigestContext
 from app.auth_db import init_auth_db
 from app.auth_sessions import SESSION_COOKIE_NAME, verify_session_token
+from app.routers.athenascout import router as athenascout_router
 from app.routers.auth import router as auth_router
 from app.routers.authors import router as authors_router
+from app.routers.delayed import router as delayed_router
 from app.routers.enums import router as enums_router
 from app.routers.inject import router as inject_router
 from app.routers.mam import router as mam_router
+from app.routers.migration import router as migration_router
 from app.routers.review import router as review_router
 from app.routers.settings import router as settings_router
 from app.routers.tentative import router as tentative_router
@@ -618,11 +621,14 @@ app.add_middleware(AuthMiddleware)
 
 # Auth router is registered first by convention since it gates
 # everything else. The other routers are protected by the middleware.
+app.include_router(athenascout_router)
 app.include_router(auth_router)
 app.include_router(authors_router)
+app.include_router(delayed_router)
 app.include_router(enums_router)
 app.include_router(inject_router)
 app.include_router(mam_router)
+app.include_router(migration_router)
 app.include_router(review_router)
 app.include_router(settings_router)
 app.include_router(tentative_router)
