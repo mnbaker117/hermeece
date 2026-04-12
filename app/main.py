@@ -48,6 +48,7 @@ from app.orchestrator.cookie_keepalive import run_loop as cookie_keepalive_loop
 from app.orchestrator.cookie_retry import run_loop as cookie_retry_loop
 from app.orchestrator.dispatch import DispatcherDeps, handle_announce
 from app.orchestrator.review_timeout import run_loop as review_timeout_loop
+from app.routers.enums import router as enums_router
 from app.routers.inject import router as inject_router
 from app.routers.review import router as review_router
 from app.routers.tentative import router as tentative_router
@@ -479,6 +480,7 @@ app = FastAPI(
     version="0.0.1",
     lifespan=lifespan,
 )
+app.include_router(enums_router)
 app.include_router(inject_router)
 app.include_router(review_router)
 app.include_router(tentative_router)
