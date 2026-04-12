@@ -242,6 +242,34 @@ DEFAULT_SETTINGS = {
     # so a new accepted grab can take its slot without losing data.
     "delayed_torrents_path": "",
 
+    # ── Metadata enrichment (Tier 4) ────────────────────────
+    # Off by default — flip to True once you're ready for the
+    # pipeline to start hitting outbound metadata scrapers for
+    # every downloaded book. Cover images and rich metadata
+    # land in the review queue automatically.
+    "metadata_enrichment_enabled": False,
+    # Provider priority. Walked in order; the first result that
+    # scores >= metadata_accept_confidence short-circuits the rest.
+    "metadata_provider_priority": [
+        "goodreads",
+        "amazon",
+        "hardcover",
+        "kobo",
+        "ibdb",
+        "google_books",
+    ],
+    # Providers the user has explicitly disabled (names that appear
+    # in metadata_provider_priority but should be skipped). Names
+    # here must match MetaSource.name.
+    "metadata_disabled_sources": [],
+    # Per-source timeout in seconds. A single stuck scraper can't
+    # block the pipeline longer than this.
+    "metadata_per_source_timeout": 15.0,
+    # Confidence in [0, 1] that short-circuits the provider loop.
+    # Tuned so exact title+author matches stop immediately and
+    # fuzzy matches fall through to the next provider.
+    "metadata_accept_confidence": 0.8,
+
     # ── Notifications ───────────────────────────────────────
     "ntfy_url": "",
     "ntfy_topic": "hermeece",

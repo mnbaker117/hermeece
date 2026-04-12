@@ -41,7 +41,10 @@ from typing import Optional
 
 import aiosqlite
 
+from app.metadata.covers import fetch_cover
 from app.metadata.extract import BookMetadata, extract as extract_metadata
+from app.metadata.enricher import MetadataEnricher
+from app.metadata.record import MetaRecord
 from app.metadata.writer import patch_epub_metadata
 from app.notify import ntfy
 from app.orchestrator.auto_train import train_authors_from_blob
@@ -77,6 +80,7 @@ async def process_completion(
     review_queue_enabled: bool = False,
     review_staging_path: str = "",
     per_event_notifications: bool = False,
+    metadata_enricher: Optional[MetadataEnricher] = None,
 ) -> bool:
     """Drive one completed download through the pipeline.
 
@@ -99,6 +103,7 @@ async def process_completion(
         prep = await _prepare_book(
             db, event, staging_path=staging_path, run_id=run_id,
             ntfy_url=ntfy_url, ntfy_topic=ntfy_topic,
+            metadata_enricher=metadata_enricher,
         )
         if prep is None:
             return False
@@ -155,8 +160,8 @@ class _PreparedBook:
     """Internal carrier for the outputs of `_prepare_book`."""
     __slots__ = (
         "book_path", "book_filename", "book_format",
-        "metadata", "announce_author", "delivery_source",
-        "temp_dir", "cleanup_temp",
+        "metadata", "enriched", "announce_author",
+        "delivery_source", "temp_dir", "cleanup_temp",
     )
 
     def __init__(
@@ -170,11 +175,13 @@ class _PreparedBook:
         delivery_source: Path,
         temp_dir: Optional[Path],
         cleanup_temp: bool,
+        enriched: Optional[MetaRecord] = None,
     ):
         self.book_path = book_path
         self.book_filename = book_filename
         self.book_format = book_format
         self.metadata = metadata
+        self.enriched = enriched
         self.announce_author = announce_author
         self.delivery_source = delivery_source
         self.temp_dir = temp_dir
@@ -189,6 +196,7 @@ async def _prepare_book(
     run_id: int,
     ntfy_url: str,
     ntfy_topic: str,
+    metadata_enricher: Optional[MetadataEnricher] = None,
 ) -> Optional[_PreparedBook]:
     """Steps 1-4: locate file, optional staging, metadata, patch.
 
@@ -264,6 +272,37 @@ async def _prepare_book(
         format=file_metadata.format,
     )
 
+    # Tier 4: enrich via online metadata sources (Goodreads, etc.).
+    # Only runs when an enricher was passed AND the enricher itself
+    # is enabled. Result fills nulls in `metadata` — we never
+    # overwrite values we already have from embedded metadata.
+    enriched: Optional[MetaRecord] = None
+    if metadata_enricher is not None:
+        try:
+            enriched = await metadata_enricher.enrich(
+                title=metadata.title,
+                author=metadata.author,
+            )
+        except Exception:
+            _log.exception(
+                "pipeline: enricher crashed for grab_id=%d (non-fatal)",
+                event.grab_id,
+            )
+            enriched = None
+
+    if enriched is not None:
+        metadata = BookMetadata(
+            title=metadata.title or enriched.title or "",
+            author=metadata.author or ", ".join(enriched.authors) or "",
+            series=metadata.series or enriched.series,
+            series_index=metadata.series_index or enriched.series_index,
+            language=metadata.language or enriched.language,
+            publisher=metadata.publisher or enriched.publisher,
+            description=metadata.description or enriched.description,
+            isbn=metadata.isbn or enriched.isbn,
+            format=metadata.format,
+        )
+
     await pipe_storage.set_state(
         db, run_id, pipe_storage.PIPE_METADATA_DONE,
         metadata_title=metadata.title or None,
@@ -314,6 +353,7 @@ async def _prepare_book(
         delivery_source=delivery_source,
         temp_dir=temp_dir,
         cleanup_temp=True,
+        enriched=enriched,
     )
 
 
@@ -362,8 +402,31 @@ async def _stage_for_review(
         if prep.cleanup_temp and prep.temp_dir and prep.temp_dir.exists():
             shutil.rmtree(str(prep.temp_dir), ignore_errors=True)
 
-    # Insert the review queue row. Metadata serialized as plain dict.
+    # Fetch the cover image if the enricher returned a URL.
+    # Best-effort — a missing cover isn't a pipeline failure.
+    cover_path_str: Optional[str] = None
+    if prep.enriched and prep.enriched.cover_url:
+        try:
+            cover_path = await fetch_cover(
+                prep.enriched.cover_url,
+                dest_dir=target_dir,
+                basename="cover",
+            )
+            if cover_path is not None:
+                cover_path_str = str(cover_path)
+        except Exception:
+            _log.exception(
+                "pipeline: cover fetch crashed for grab_id=%d", event.grab_id
+            )
+
+    # Insert the review queue row. Metadata serialized as plain dict,
+    # merged with the enriched source record so the UI can display
+    # both provider-side fields (description, page count, etc.) and
+    # the embedded-file values.
     metadata_dict = {k: v for k, v in asdict(prep.metadata).items() if v is not None}
+    if prep.enriched is not None:
+        enriched_dict = prep.enriched.to_dict()
+        metadata_dict["enriched"] = enriched_dict
     await review_storage.create_entry(
         db,
         grab_id=event.grab_id,
@@ -372,7 +435,7 @@ async def _stage_for_review(
         book_filename=dest.name,
         book_format=prep.book_format,
         metadata=metadata_dict,
-        cover_path=None,
+        cover_path=cover_path_str,
     )
     await pipe_storage.set_state(db, run_id, pipe_storage.PIPE_AWAITING_REVIEW)
     await grabs_storage.set_state(

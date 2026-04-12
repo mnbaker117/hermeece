@@ -145,6 +145,11 @@ class DispatcherDeps:
     review_queue_enabled: bool = True
     review_staging_path: str = ""
     metadata_review_timeout_days: int = 14
+
+    # Tier 4 metadata enrichment. The enricher instance is built
+    # at startup from settings and passed through here so the
+    # pipeline doesn't need a global. None disables enrichment.
+    metadata_enricher: Optional[object] = None
     default_sink: str = "calibre"
     calibre_library_path: str = ""
     folder_sink_path: str = ""

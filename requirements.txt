@@ -23,3 +23,7 @@ itsdangerous==2.2.0
 
 # Audiobook metadata reading (M4B/MP3 tags via mutagen)
 mutagen==1.47.0
+
+# Metadata scraper HTML parsing (Goodreads, Amazon, etc.)
+beautifulsoup4==4.12.3
+lxml==5.3.0

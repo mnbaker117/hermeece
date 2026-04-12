@@ -54,6 +54,7 @@ from app.routers.enums import router as enums_router
 from app.routers.inject import router as inject_router
 from app.routers.review import router as review_router
 from app.routers.tentative import router as tentative_router
+from app.metadata.enricher import EnrichmentConfig, MetadataEnricher
 
 # Configure logging once at import time. The verbose toggle gets re-applied
 # from settings.json after load_settings() runs in the lifespan.
@@ -97,6 +98,33 @@ def _build_filter_config(settings: dict) -> FilterConfig:
     )
 
 
+def _build_metadata_enricher(settings: dict) -> MetadataEnricher:
+    """Construct the Tier 4 metadata enricher from settings.
+
+    Always returns a live enricher — the `enabled` flag on
+    `EnrichmentConfig` gates whether it actually runs, so the
+    pipeline can pass through `deps.metadata_enricher` without a
+    None guard.
+    """
+    cfg = EnrichmentConfig(
+        enabled=bool(settings.get("metadata_enrichment_enabled", False)),
+        priority=tuple(
+            settings.get("metadata_provider_priority", [])
+            or ("goodreads", "amazon", "hardcover", "kobo", "ibdb", "google_books")
+        ),
+        disabled_sources=frozenset(
+            settings.get("metadata_disabled_sources", []) or []
+        ),
+        per_source_timeout=float(
+            settings.get("metadata_per_source_timeout", 15.0)
+        ),
+        accept_confidence=float(
+            settings.get("metadata_accept_confidence", 0.8)
+        ),
+    )
+    return MetadataEnricher(cfg)
+
+
 def _build_dispatcher(settings: dict) -> DispatcherDeps:
     """Build the dispatcher from a settings snapshot."""
     qbit = QbitClient(
@@ -111,6 +139,8 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
     # type. Phase 1.5 ships with a single static tag.
     raw_tag = settings.get("qbit_tag", "hermeece-seed").strip()
     qbit_tags = [t.strip() for t in raw_tag.split(",") if t.strip()]
+
+    enricher = _build_metadata_enricher(settings)
     return DispatcherDeps(
         filter_config=_build_filter_config(settings),
         policy_config=PolicyConfig(
@@ -152,6 +182,7 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
         ntfy_url=settings.get("ntfy_url", ""),
         ntfy_topic=settings.get("ntfy_topic", "hermeece"),
         per_event_notifications=bool(settings.get("per_event_notifications", False)),
+        metadata_enricher=enricher,
     )
 
 
@@ -501,6 +532,12 @@ async def lifespan(app: FastAPI):
                 await state.dispatcher.qbit.aclose()
             except Exception:
                 _log.exception("error closing qBit client during shutdown")
+            enricher = getattr(state.dispatcher, "metadata_enricher", None)
+            if enricher is not None:
+                try:
+                    await enricher.aclose()
+                except Exception:
+                    _log.exception("error closing metadata enricher")
         try:
             await aclose_session()
         except Exception:
