@@ -97,6 +97,18 @@ export default function FiltersPage() {
     }
   }
 
+  // Group categories by their main_name (AudioBooks, E-Books, etc.)
+  // Hook must be called unconditionally (Rules of Hooks) — before
+  // any early return. Safe because enums?.categories is just [].
+  const catGroups = useMemo(() => {
+    const cats = enums?.categories ?? [];
+    const groups: Record<string, CategoryEntry[]> = {};
+    for (const c of cats) {
+      (groups[c.main_name] ??= []).push(c);
+    }
+    return groups;
+  }, [enums?.categories]);
+
   if (!enums || !settings) {
     return (
       <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
@@ -104,15 +116,6 @@ export default function FiltersPage() {
       </div>
     );
   }
-
-  // Group categories by their main_name (AudioBooks, E-Books, etc.)
-  const catGroups = useMemo(() => {
-    const groups: Record<string, CategoryEntry[]> = {};
-    for (const c of enums.categories) {
-      (groups[c.main_name] ??= []).push(c);
-    }
-    return groups;
-  }, [enums.categories]);
 
   const allowedCats = new Set(
     (effective.allowed_categories as string[]) ?? [],

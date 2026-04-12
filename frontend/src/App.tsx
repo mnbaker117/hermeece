@@ -19,6 +19,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import { ThemeProvider, useTheme, useThemeControls } from "./theme";
 import { Spin } from "./components/Spin";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import LoginPage from "./pages/LoginPage";
 import AuthorsPage from "./pages/AuthorsPage";
 import CredentialsPage from "./pages/CredentialsPage";
@@ -279,20 +280,22 @@ function AppInner() {
           padding: "28px 20px",
         }}
       >
-        <div key={page} style={{ animation: "fade-in 0.2s ease-out" }}>
-          {page === "dashboard" && <Dashboard onNav={nav} />}
-          {page === "review" && <ReviewPage />}
-          {page === "tentative" && <TentativePage />}
-          {page === "ignored-weekly" && <IgnoredWeeklyPage />}
-          {page === "authors" && <AuthorsPage />}
-          {page === "logs" && <LogsPage />}
-          {page === "filters" && <FiltersPage />}
-          {page === "delayed" && <DelayedPage />}
-          {page === "migration" && <MigrationPage />}
-          {page === "mam" && <MamPage />}
-          {page === "credentials" && <CredentialsPage />}
-          {page === "settings" && <SettingsPage />}
-        </div>
+        <ErrorBoundary onReset={() => nav("dashboard")} key={page}>
+          <div style={{ animation: "fade-in 0.2s ease-out" }}>
+            {page === "dashboard" && <Dashboard onNav={nav} />}
+            {page === "review" && <ReviewPage />}
+            {page === "tentative" && <TentativePage />}
+            {page === "ignored-weekly" && <IgnoredWeeklyPage />}
+            {page === "authors" && <AuthorsPage />}
+            {page === "logs" && <LogsPage />}
+            {page === "filters" && <FiltersPage />}
+            {page === "delayed" && <DelayedPage />}
+            {page === "migration" && <MigrationPage />}
+            {page === "mam" && <MamPage />}
+            {page === "credentials" && <CredentialsPage />}
+            {page === "settings" && <SettingsPage />}
+          </div>
+        </ErrorBoundary>
       </main>
     </div>
   );
