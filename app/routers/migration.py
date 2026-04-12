@@ -66,6 +66,7 @@ class PreviewResponse(BaseModel):
 
 class ExecuteRequest(BaseModel):
     hashes: list[str] = Field(..., min_length=1, max_length=500)
+    dry_run: bool = False
 
 
 class ExecuteResultItem(BaseModel):
@@ -73,12 +74,14 @@ class ExecuteResultItem(BaseModel):
     name: str
     ok: bool
     error: Optional[str] = None
+    action: Optional[str] = None  # what was/would be done
 
 
 class ExecuteResponse(BaseModel):
     total: int
     succeeded: int
     failed: int
+    dry_run: bool = False
     results: list[ExecuteResultItem]
 
 
@@ -232,12 +235,36 @@ async def execute(body: ExecuteRequest) -> ExecuteResponse:
 
         if month in t.save_path:
             results.append(
-                ExecuteResultItem(hash=h, name=t.name, ok=True, error="already in target folder")
+                ExecuteResultItem(hash=h, name=t.name, ok=True, error="already in target folder",
+                                  action="skip (already correct)")
             )
             succeeded += 1
             continue
 
-        # Pre-create the local-namespace folder.
+        action_desc = f"move {t.save_path} → {target_qbit}"
+
+        if body.dry_run:
+            # Dry run: validate that the local target can be created,
+            # but don't actually touch qBit or move any files.
+            local_target = translate_path(
+                target_qbit, deps.qbit_path_prefix, deps.local_path_prefix
+            )
+            # Check that the source exists.
+            src_exists = local_dir.exists() if local_dir else False
+            if not src_exists:
+                src_exists = Path(local_save).exists()
+
+            results.append(
+                ExecuteResultItem(
+                    hash=h, name=t.name, ok=True,
+                    action=f"DRY RUN: would {action_desc}",
+                    error=None if src_exists else "WARNING: source path not found on disk",
+                )
+            )
+            succeeded += 1
+            continue
+
+        # Real execution: pre-create folder + run the full cycle.
         local_target = translate_path(
             target_qbit, deps.qbit_path_prefix, deps.local_path_prefix
         )
@@ -250,12 +277,13 @@ async def execute(body: ExecuteRequest) -> ExecuteResponse:
             ok = False
 
         if ok:
-            results.append(ExecuteResultItem(hash=h, name=t.name, ok=True))
+            results.append(ExecuteResultItem(hash=h, name=t.name, ok=True, action=action_desc))
             succeeded += 1
             _log.info("migrated %s → %s", t.name, target_qbit)
         else:
             results.append(
-                ExecuteResultItem(hash=h, name=t.name, ok=False, error="pause/move/recheck cycle failed")
+                ExecuteResultItem(hash=h, name=t.name, ok=False,
+                                  error="pause/move/recheck cycle failed", action=action_desc)
             )
             failed += 1
 
@@ -263,6 +291,7 @@ async def execute(body: ExecuteRequest) -> ExecuteResponse:
         total=len(body.hashes),
         succeeded=succeeded,
         failed=failed,
+        dry_run=body.dry_run,
         results=results,
     )
 

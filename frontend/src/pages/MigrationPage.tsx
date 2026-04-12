@@ -37,12 +37,14 @@ interface ExecuteResultItem {
   name: string;
   ok: boolean;
   error: string | null;
+  action: string | null;
 }
 
 interface ExecuteResponse {
   total: number;
   succeeded: number;
   failed: number;
+  dry_run: boolean;
   results: ExecuteResultItem[];
 }
 
@@ -76,7 +78,7 @@ export default function MigrationPage() {
     }
   }
 
-  async function runExecute() {
+  async function runExecute(dryRun: boolean = false) {
     if (selected.size === 0) return;
     setBusy(true);
     setError(null);
@@ -84,6 +86,7 @@ export default function MigrationPage() {
     try {
       const r = await api.post<ExecuteResponse>("/v1/migration/execute", {
         hashes: [...selected],
+        dry_run: dryRun,
       });
       setResults(r);
       setStep("done");
@@ -274,24 +277,26 @@ export default function MigrationPage() {
             title="Step 2: Execute"
             subtitle={`${selected.size} torrent(s) selected for migration.`}
           >
-            <p
-              style={{
-                fontSize: 13,
-                color: theme.warn,
-                marginBottom: 12,
-              }}
-            >
-              Each torrent will be paused, relocated, rechecked, and resumed.
-              This is safe but takes ~5s per torrent. Large batches may
-              take a while.
+            <p style={{ fontSize: 13, color: theme.textDim, marginBottom: 12, lineHeight: 1.5 }}>
+              <strong>Dry Run</strong> validates paths and shows what would happen without touching qBit.
+              {" "}<strong>Migrate</strong> runs the full pause → relocate → recheck → resume cycle (~5s per torrent).
             </p>
-            <Btn
-              variant="primary"
-              onClick={runExecute}
-              disabled={busy || selected.size === 0}
-            >
-              {busy ? <Spin size={14} /> : `Migrate ${selected.size} torrent(s)`}
-            </Btn>
+            <div style={{ display: "flex", gap: 10 }}>
+              <Btn
+                variant="secondary"
+                onClick={() => runExecute(true)}
+                disabled={busy || selected.size === 0}
+              >
+                {busy ? <Spin size={14} /> : `🧪 Dry Run (${selected.size})`}
+              </Btn>
+              <Btn
+                variant="primary"
+                onClick={() => runExecute(false)}
+                disabled={busy || selected.size === 0}
+              >
+                {busy ? <Spin size={14} /> : `📦 Migrate ${selected.size} torrent(s)`}
+              </Btn>
+            </div>
           </Section>
         </>
       )}
@@ -316,51 +321,69 @@ export default function MigrationPage() {
 
       {step === "done" && results && (
         <Section
-          title={`Done — ${results.succeeded} succeeded, ${results.failed} failed`}
+          title={`${results.dry_run ? "🧪 Dry Run" : "Done"} — ${results.succeeded} succeeded, ${results.failed} failed`}
           right={
-            <Btn
-              variant="ghost"
-              onClick={() => {
-                setStep("idle");
-                setPreview(null);
-                setResults(null);
-              }}
-            >
-              Start over
-            </Btn>
+            <div style={{ display: "flex", gap: 8 }}>
+              {results.dry_run && (
+                <Btn
+                  variant="primary"
+                  onClick={() => {
+                    setResults(null);
+                    setStep("preview");
+                  }}
+                >
+                  Proceed with real migration
+                </Btn>
+              )}
+              <Btn
+                variant="ghost"
+                onClick={() => {
+                  setStep("idle");
+                  setPreview(null);
+                  setResults(null);
+                }}
+              >
+                Start over
+              </Btn>
+            </div>
           }
         >
+          {results.dry_run && (
+            <p style={{ fontSize: 13, color: theme.accent, marginBottom: 12, fontWeight: 500 }}>
+              This was a dry run — no files were moved. Review the actions below, then click "Proceed with real migration" if everything looks correct.
+            </p>
+          )}
           {results.results.map((r) => (
             <div
               key={r.hash}
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                padding: "6px 0",
+                alignItems: "flex-start",
+                padding: "8px 0",
                 borderBottom: `1px solid ${theme.borderL}`,
                 fontSize: 13,
+                gap: 12,
               }}
             >
-              <span
-                style={{
-                  color: r.ok ? theme.text2 : theme.err,
-                  maxWidth: 500,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {r.name}
-              </span>
-              <span
-                style={{
-                  color: r.ok ? theme.ok : theme.err,
-                  fontWeight: 600,
-                  fontSize: 12,
-                }}
-              >
-                {r.ok ? "OK" : r.error || "Failed"}
-              </span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ color: r.ok ? theme.text2 : theme.err, fontWeight: 500 }}>
+                  {r.name}
+                </div>
+                {r.action && (
+                  <div style={{ fontSize: 11, color: theme.textDim, marginTop: 2, fontFamily: "ui-monospace, monospace" }}>
+                    {r.action}
+                  </div>
+                )}
+              </div>
+              <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+                <span style={{ color: r.ok ? theme.ok : theme.err, fontWeight: 600, fontSize: 12 }}>
+                  {r.ok ? "✓ OK" : "✗ Failed"}
+                </span>
+                {r.error && (
+                  <span style={{ fontSize: 11, color: theme.err }}>{r.error}</span>
+                )}
+              </div>
             </div>
           ))}
         </Section>
