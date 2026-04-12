@@ -39,14 +39,12 @@ from app.metadata.record import MetaRecord
 from app.metadata.scoring import score_match
 from app.metadata.sources.base import MetaSource
 from app.metadata.sources.goodreads import GoodreadsSource
+from app.metadata.sources.amazon import AmazonSource
+from app.metadata.sources.google_books import GoogleBooksSource
+from app.metadata.sources.hardcover import HardcoverSource
+from app.metadata.sources.ibdb import IbdbSource
+from app.metadata.sources.kobo import KoboSource
 from app.metadata.sources.mam_search import MamSearchSource
-from app.metadata.sources.stubs import (
-    AmazonSource,
-    GoogleBooksSource,
-    HardcoverSource,
-    IbdbSource,
-    KoboSource,
-)
 
 _log = logging.getLogger("hermeece.metadata.enricher")
 

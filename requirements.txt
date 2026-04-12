@@ -27,3 +27,6 @@ mutagen==1.47.0
 # Metadata scraper HTML parsing (Goodreads, Amazon, etc.)
 beautifulsoup4==4.12.3
 lxml==5.3.0
+
+# Cloudflare bypass for Amazon + Kobo scraping
+cloudscraper==1.2.71
