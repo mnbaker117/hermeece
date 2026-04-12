@@ -21,6 +21,7 @@ import { ThemeProvider, useTheme, useThemeControls } from "./theme";
 import { Spin } from "./components/Spin";
 import LoginPage from "./pages/LoginPage";
 import AuthorsPage from "./pages/AuthorsPage";
+import CredentialsPage from "./pages/CredentialsPage";
 import Dashboard from "./pages/Dashboard";
 import DelayedPage from "./pages/DelayedPage";
 import FiltersPage from "./pages/FiltersPage";
@@ -55,6 +56,7 @@ const NAV: { id: string; label: string }[] = [
   { id: "delayed", label: "Delayed" },
   { id: "migration", label: "Migration" },
   { id: "mam", label: "MAM" },
+  { id: "credentials", label: "Credentials" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -288,6 +290,7 @@ function AppInner() {
           {page === "delayed" && <DelayedPage />}
           {page === "migration" && <MigrationPage />}
           {page === "mam" && <MamPage />}
+          {page === "credentials" && <CredentialsPage />}
           {page === "settings" && <SettingsPage />}
         </div>
       </main>

@@ -61,6 +61,7 @@ from app.routers.athenascout import router as athenascout_router
 from app.routers.auth import router as auth_router
 from app.routers.authors import router as authors_router
 from app.routers.covers import router as covers_router
+from app.routers.credentials import router as credentials_router
 from app.routers.delayed import router as delayed_router
 from app.routers.enums import router as enums_router
 from app.routers.inject import router as inject_router
@@ -141,12 +142,20 @@ def _build_metadata_enricher(settings: dict) -> MetadataEnricher:
     return MetadataEnricher(cfg)
 
 
-def _build_dispatcher(settings: dict) -> DispatcherDeps:
-    """Build the dispatcher from a settings snapshot."""
+def _build_dispatcher(settings: dict, resolved_secrets: dict = None) -> DispatcherDeps:
+    """Build the dispatcher from a settings snapshot.
+
+    `resolved_secrets` is an optional dict of {key: plaintext} that
+    takes priority over settings.json for secret fields. The lifespan
+    reads from the encrypted store and passes them here; the settings
+    PATCH rebuild doesn't have secrets so it falls back to whatever
+    is in settings.json (which may be empty post-migration).
+    """
+    rs = resolved_secrets or {}
     qbit = QbitClient(
-        base_url=settings.get("qbit_url", ""),
-        username=settings.get("qbit_username", ""),
-        password=settings.get("qbit_password", ""),
+        base_url=rs.get("qbit_url") or settings.get("qbit_url", ""),
+        username=rs.get("qbit_username") or settings.get("qbit_username", ""),
+        password=rs.get("qbit_password") or settings.get("qbit_password", ""),
     )
     # qbit_tag is a single string in settings.json, but the client
     # accepts a list so the future VIP/freeleech work can stack
@@ -172,7 +181,7 @@ def _build_dispatcher(settings: dict) -> DispatcherDeps:
             min_wedges_reserved=int(settings.get("policy_min_wedges_reserved", 0)),
             ratio_floor=float(settings.get("policy_ratio_floor", 0.0)),
         ),
-        mam_token=settings.get("mam_session_id", ""),
+        mam_token=rs.get("mam_session_id") or settings.get("mam_session_id", ""),
         qbit_category=settings.get("qbit_watch_category", "[mam-reseed]"),
         qbit_tags=qbit_tags,
         budget_cap=int(settings.get("snatch_budget_cap", 200)),
@@ -272,7 +281,7 @@ async def _debounced_persist_rotation() -> None:
         _log.exception("failed to persist rotated MAM cookie to settings.json")
 
 
-def _build_irc_config(settings: dict) -> IrcConfig:
+def _build_irc_config(settings: dict, resolved_secrets: dict = None) -> IrcConfig:
     """Construct an IrcConfig from a settings snapshot.
 
     Returns a config with `auth_mode="none"` if no IRC credentials
@@ -280,9 +289,10 @@ def _build_irc_config(settings: dict) -> IrcConfig:
     case (Hermeece runs as a synchronous-call pipeline, useful for
     testing without IRC).
     """
-    nick = settings.get("mam_irc_nick", "")
-    account = settings.get("mam_irc_account", "")
-    password = settings.get("mam_irc_password", "")
+    rs = resolved_secrets or {}
+    nick = rs.get("mam_irc_nick") or settings.get("mam_irc_nick", "")
+    account = rs.get("mam_irc_account") or settings.get("mam_irc_account", "")
+    password = rs.get("mam_irc_password") or settings.get("mam_irc_password", "")
     auth_mode = "sasl" if (account and password) else "none"
     return IrcConfig(
         nick=nick,
@@ -304,15 +314,32 @@ async def lifespan(app: FastAPI):
     await init_auth_db()
     _log.info("Auth database initialized")
 
+    # Initialize the encrypted secret store and migrate any secrets
+    # still in settings.json into the auth DB.
+    from app.secrets import init_secrets_table, migrate_from_settings
+    await init_secrets_table()
+    migrated = await migrate_from_settings()
+    if migrated:
+        _log.info("Migrated %d secret(s) from settings.json to encrypted store", migrated)
+
     # Seed the MAM cookie rotation layer with whatever's in
     # settings.json right now. Every subsequent MAM API call will
     # update this in-memory value automatically, and the debounced
     # rotation callback writes changes back to disk.
-    set_current_token(settings.get("mam_session_id", ""))
+    # Seed the MAM cookie from the secret store (preferred) or settings.
+    mam_cookie = resolved_secrets.get("mam_session_id") or settings.get("mam_session_id", "")
+    set_current_token(mam_cookie)
     set_rotation_callback(_rotation_callback)
     _log.info("MAM cookie rotation handler wired")
 
-    state.dispatcher = _build_dispatcher(settings)
+    # Resolve secrets from the encrypted store for the dispatcher.
+    from app.secrets import get_secret, SECRET_KEYS
+    resolved_secrets = {}
+    for key in SECRET_KEYS:
+        val = await get_secret(key)
+        if val:
+            resolved_secrets[key] = val
+    state.dispatcher = _build_dispatcher(settings, resolved_secrets)
     _log.info("Dispatcher initialized")
 
     # ── Background loops (supervised) ────────────────────────
@@ -351,7 +378,7 @@ async def lifespan(app: FastAPI):
     # settings (e.g. during cookie rotation, or in dry-run-friendly
     # test setups).
     irc_enabled = settings.get("mam_irc_enabled", True)
-    irc_config = _build_irc_config(settings)
+    irc_config = _build_irc_config(settings, resolved_secrets)
     if irc_enabled and irc_config.auth_mode != "none" and irc_config.nick:
         async def _on_announce(announce: Announce) -> None:
             # Bridge the IRC callback signature to the dispatcher.
@@ -634,6 +661,7 @@ app.include_router(athenascout_router)
 app.include_router(auth_router)
 app.include_router(authors_router)
 app.include_router(covers_router)
+app.include_router(credentials_router)
 app.include_router(delayed_router)
 app.include_router(enums_router)
 app.include_router(inject_router)
