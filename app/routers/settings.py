@@ -102,6 +102,8 @@ _PATCHABLE_KEYS: frozenset[str] = frozenset({
     "cwa_ingest_path",
     "calibre_library_path",
     "folder_sink_path",
+    "emergency_export_path",
+    "sink_max_retries",
     # Operational
     "verbose_logging",
     "dry_run",

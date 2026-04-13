@@ -300,6 +300,14 @@ DEFAULT_SETTINGS = {
     # "author"  = Author Name/ subfolders
     # "flat"    = all in root download path
     "download_folder_structure": "monthly",
+    # Emergency export folder: if the configured sink (CWA/Calibre)
+    # is unreachable after multiple retries, books are dumped here
+    # so they're not lost. The user can manually import them later.
+    "emergency_export_path": "",
+    # How many times to retry sink delivery before dumping to the
+    # emergency folder. Each retry happens on the next review-timeout
+    # tick (daily by default).
+    "sink_max_retries": 3,
 
     # ── Cron / scheduled jobs ───────────────────────────────
     # MAM keeps a session cookie alive as long as we make at least one

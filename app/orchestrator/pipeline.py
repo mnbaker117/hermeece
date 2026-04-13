@@ -705,8 +705,7 @@ async def deliver_reviewed(
             decision_note="timeout auto-add" if was_timeout else "approved",
         )
         # Clean up the review staging dir now that the book has
-        # been delivered. Best-effort — a stray dir is harmless but
-        # ugly, and the user shouldn't have to garbage-collect by hand.
+        # been delivered.
         try:
             review_dir = Path(entry.staged_path)
             if review_dir.exists():
@@ -714,10 +713,52 @@ async def deliver_reviewed(
         except Exception:
             pass
     else:
-        await review_storage.set_status(
-            db, review_id, review_storage.STATUS_FAILED,
-            decision_note="sink delivery failed",
-        )
+        # Sink failed. Track the attempt count and either queue for
+        # retry or dump to the emergency export folder.
+        prev_note = entry.decision_note or ""
+        attempt = 1
+        if "sink_attempt:" in prev_note:
+            try:
+                attempt = int(prev_note.split("sink_attempt:")[1].split()[0]) + 1
+            except (ValueError, IndexError):
+                pass
+
+        from app.config import load_settings
+        settings = load_settings()
+        max_retries = int(settings.get("sink_max_retries", 3))
+        emergency_path = settings.get("emergency_export_path", "") or ""
+
+        if attempt >= max_retries and emergency_path:
+            # Max retries exceeded — dump to emergency folder.
+            try:
+                emer_dir = Path(emergency_path)
+                emer_dir.mkdir(parents=True, exist_ok=True)
+                staged = Path(entry.staged_path) / entry.book_filename
+                if staged.exists():
+                    dest = emer_dir / entry.book_filename
+                    shutil.copy2(str(staged), str(dest))
+                    _log.warning(
+                        "pipeline: sink failed %d times for review_id=%d — "
+                        "exported to emergency folder: %s",
+                        attempt, review_id, dest,
+                    )
+            except Exception:
+                _log.exception("pipeline: emergency export failed")
+            await review_storage.set_status(
+                db, review_id, review_storage.STATUS_FAILED,
+                decision_note=f"sink failed after {attempt} attempts, exported to emergency folder",
+            )
+        else:
+            # Queue for retry on next review-timeout tick.
+            await review_storage.set_status(
+                db, review_id, review_storage.STATUS_SINK_PENDING,
+                decision_note=f"sink_attempt:{attempt} — will retry on next tick",
+            )
+            _log.info(
+                "pipeline: sink delivery failed for review_id=%d (attempt %d/%d), "
+                "queued for retry",
+                review_id, attempt, max_retries,
+            )
 
     return ok
 

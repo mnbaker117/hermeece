@@ -25,6 +25,9 @@ STATUS_REJECTED = "rejected"
 STATUS_TIMEOUT = "timeout"
 STATUS_DELIVERED = "delivered"
 STATUS_FAILED = "failed"
+# Sink delivery was attempted but the sink was unreachable. The book
+# stays in staging and the review-timeout job retries on its next tick.
+STATUS_SINK_PENDING = "sink_pending"
 
 
 @dataclass(frozen=True)
@@ -97,6 +100,22 @@ async def list_pending(
         LIMIT ?
         """,
         (STATUS_PENDING, limit),
+    )
+    rows = await cursor.fetchall()
+    return [_row_to_review(r) for r in rows]
+
+
+async def list_sink_pending(
+    db: aiosqlite.Connection,
+) -> list[ReviewRow]:
+    """Items where the sink was unreachable and needs retry."""
+    cursor = await db.execute(
+        """
+        SELECT * FROM book_review_queue
+        WHERE status = ?
+        ORDER BY created_at ASC
+        """,
+        (STATUS_SINK_PENDING,),
     )
     rows = await cursor.fetchall()
     return [_row_to_review(r) for r in rows]

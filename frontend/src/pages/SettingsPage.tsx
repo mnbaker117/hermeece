@@ -363,6 +363,12 @@ export default function SettingsPage() {
             <option value="audiobookshelf">Audiobookshelf — library folder</option>
           </select>
         </SF>
+        <SF label="Emergency Export Path" desc="If the sink is unreachable after multiple retries, books are dumped here so they're never lost. Leave empty to keep retrying indefinitely." example='e.g. "/emergency-books" — mount this path in docker-compose'>
+          <input value={(s.emergency_export_path as string) || ""} onChange={e => upd("emergency_export_path", e.target.value)} placeholder="/emergency-books" style={{ ...ist, width: 220 }} />
+        </SF>
+        <SF label="Sink Max Retries" desc="How many times to retry sink delivery before exporting to the emergency folder. Each retry happens on the review-timeout tick (daily)." example="3 = dump to emergency folder after 3 days of failures.">
+          <input type="number" min={1} value={s.sink_max_retries as number ?? 3} onChange={e => upd("sink_max_retries", parseInt(e.target.value) || 3)} style={nist} />
+        </SF>
       </SSection>
 
       <SSection title="Operational" defaultOpen={false}>
