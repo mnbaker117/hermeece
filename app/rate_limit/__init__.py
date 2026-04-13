@@ -2,7 +2,7 @@
 Snatch budget tracking and queueing.
 
 MAM caps the number of "active snatches" a user can have — a torrent
-counts against the budget from the moment it lands in qBittorrent
+counts against the budget from the moment it lands in the download client
 until it has accumulated 72 hours of seedtime (or until the user
 removes it from qBit). Hermeece must never exceed this cap, or the
 user gets flagged and eventually banned.

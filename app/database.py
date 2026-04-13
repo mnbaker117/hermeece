@@ -16,9 +16,9 @@ Connection pragmas:
   - foreign_keys=ON: enforced at runtime, not just declared
   - busy_timeout=30s: long enough to wait out a slow background writer
 
-The schema is minimal in Phase 1 (just enough for the filter, the
-snatch ledger, and the announce audit log). Phase 2 adds the
-metadata_review and sink_runs tables; Phase 3 adds auth tables.
+Tables cover the full pipeline: author lists, announce audit log,
+grabs + snatch ledger, book review queue, tentative/ignored capture,
+calibre additions counter, and metadata enrichment support.
 """
 import logging
 

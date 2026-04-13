@@ -6,8 +6,8 @@ Two public functions, both following the same shape:
   - `handle_announce(deps, announce)` — called by the IRC listener
     for every parsed announce. Runs the filter, evaluates the rate
     limiter, fetches the .torrent file (if allowed), submits to
-    qBit (if budget allows), and updates all the persistence
-    layers in the right order.
+    the download client (if budget allows), and updates all the
+    persistence layers in the right order.
 
   - `inject_grab(deps, torrent_id, ...)` — called by the manual-
     inject HTTP endpoint. Skips the filter (the user already
@@ -23,12 +23,12 @@ hands it to the IRC listener and the inject router.
 
 State transitions written by this module:
 
-    decide=submit, fetch ok, qBit ok      → STATE_SUBMITTED
-    decide=submit, fetch=cookie_expired   → STATE_FAILED_COOKIE_EXPIRED
+    decide=submit, fetch ok, client ok       → STATE_SUBMITTED
+    decide=submit, fetch=cookie_expired    → STATE_FAILED_COOKIE_EXPIRED
     decide=submit, fetch=torrent_not_found → STATE_FAILED_TORRENT_GONE
-    decide=submit, fetch=other failure    → STATE_FAILED_UNKNOWN
-    decide=submit, fetch ok, qBit reject  → STATE_FAILED_QBIT_REJECTED
-    decide=submit, fetch ok, qBit auth    → STATE_FAILED_UNKNOWN
+    decide=submit, fetch=other failure     → STATE_FAILED_UNKNOWN
+    decide=submit, fetch ok, client reject → STATE_FAILED_QBIT_REJECTED
+    decide=submit, fetch ok, client auth   → STATE_PENDING_QUEUE (queued for retry)
     decide=queue,  fetch ok               → STATE_PENDING_QUEUE (queued)
     decide=queue,  fetch failure          → same as submit-failure
     decide=drop                           → no grab row, only audit
