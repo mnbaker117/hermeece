@@ -9,6 +9,7 @@
 [![License](https://img.shields.io/github/license/mnbaker117/hermeece?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12-blue?style=flat-square&logo=python)](https://www.python.org/)
 [![React](https://img.shields.io/badge/react-18-61DAFB?style=flat-square&logo=react)](https://react.dev/)
+[![Tests](https://img.shields.io/badge/tests-625_passing-brightgreen?style=flat-square)](tests/)
 
 <!-- TODO: Add screenshot — full dashboard with budget widget, MAM card, status pills -->
 <!-- ![Hermeece Dashboard](docs/images/dashboard-hero.png) -->
