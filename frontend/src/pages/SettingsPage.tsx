@@ -257,6 +257,9 @@ export default function SettingsPage() {
             <BadgeList items={uploaders} onEdit={() => { setUploadersText(uploaders.join("\n")); setEditingUploaders(true); }} onClear={() => upd("excluded_uploaders", [])} />
           )}
         </SF>
+        <SF label="Delayed Torrents Path" desc="When the queue overflows, the oldest grab's .torrent is dumped here. Leave empty to disable FIFO rotation (new grabs are dropped instead)." example='e.g. "/delayed-torrents" — mount this path in docker-compose'>
+          <input value={(s.delayed_torrents_path as string) || ""} onChange={e => upd("delayed_torrents_path", e.target.value)} placeholder="/delayed-torrents" style={{ ...ist, width: 220 }} />
+        </SF>
       </SSection>
 
       <SSection title="Notifications (ntfy)" desc="Push notifications">

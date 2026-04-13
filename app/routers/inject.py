@@ -66,6 +66,35 @@ class InjectResponse(BaseModel):
     error: Optional[str] = None
 
 
+@router.get("/recent")
+async def recent_grabs():
+    """Last 5 grabs for the dashboard mini-display."""
+    from app.database import get_db
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """
+            SELECT torrent_name, author_blob, grabbed_at
+            FROM grabs
+            ORDER BY grabbed_at DESC
+            LIMIT 5
+            """
+        )
+        rows = await cursor.fetchall()
+        return {
+            "grabs": [
+                {
+                    "torrent_name": str(r["torrent_name"] or ""),
+                    "author_blob": str(r["author_blob"] or ""),
+                    "grabbed_at": str(r["grabbed_at"] or ""),
+                }
+                for r in rows
+            ]
+        }
+    finally:
+        await db.close()
+
+
 @router.post("/inject", response_model=InjectResponse)
 async def inject_endpoint(request: InjectRequest) -> InjectResponse:
     if state.dispatcher is None:

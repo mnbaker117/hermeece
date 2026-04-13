@@ -32,24 +32,27 @@ export default function Dashboard({ onNav }: DashboardProps) {
   const [mam, setMam] = useState<MamStatusResponse | null>(null);
   const [authors, setAuthors] = useState<AuthorOverviewResponse | null>(null);
   const [counts, setCounts] = useState<DataCounts | null>(null);
+  const [recentGrabs, setRecentGrabs] = useState<{ torrent_name: string; author_blob: string; grabbed_at: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
       try {
-        const [review, tentative, h, mamS, auth, cnt] = await Promise.all([
+        const [review, tentative, h, mamS, auth, cnt, recent] = await Promise.all([
           api.get<ReviewListResponse>("/v1/review"),
           api.get<TentativeListResponse>("/v1/tentative"),
           api.get<HealthResponse>("/health"),
           api.get<MamStatusResponse>("/v1/mam/status").catch(() => null),
           api.get<AuthorOverviewResponse>("/v1/authors").catch(() => null),
           api.get<DataCounts>("/v1/data/counts").catch(() => null),
+          api.get<{ grabs: { torrent_name: string; author_blob: string; grabbed_at: string }[] }>("/v1/grabs/recent").catch(() => ({ grabs: [] })),
         ]);
         if (cancelled) return;
         setReviewCount(review.pending_count);
         setTentativeCount(tentative.items.length);
         setHealth(h); setMam(mamS); setAuthors(auth); setCounts(cnt);
+        if (recent) setRecentGrabs(recent.grabs);
         setError(null);
       } catch (e) { if (!cancelled) setError(String(e)); }
     };
@@ -145,17 +148,20 @@ export default function Dashboard({ onNav }: DashboardProps) {
       {/* ── Quick Actions + Tools ── */}
       <div style={{ background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 12, padding: 24 }}>
         <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-          {/* Quick Actions */}
-          <div style={{ flex: "1 1 340px" }}>
+          {/* Quick Actions + Recent Grabs */}
+          <div style={{ flex: "1 1 400px" }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 14 }}>
               Quick Actions
             </div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
               <Btn variant="primary" onClick={() => onNav("review")}>
                 📚 Review Books {reviewCount ? `(${reviewCount})` : ""}
               </Btn>
               <Btn onClick={() => onNav("tentative")}>
                 🔎 New Authors {tentativeCount ? `(${tentativeCount})` : ""}
+              </Btn>
+              <Btn onClick={() => onNav("ignored-weekly")}>
+                📊 Weekly Ignored
               </Btn>
               <Btn onClick={() => onNav("authors")}>
                 👤 Author Lists
@@ -163,7 +169,37 @@ export default function Dashboard({ onNav }: DashboardProps) {
               <Btn onClick={() => onNav("filters")}>
                 🎯 Edit Filters
               </Btn>
+              <Btn onClick={() => onNav("mam")}>
+                📡 MAM Status
+              </Btn>
+              <Btn onClick={() => onNav("logs")}>
+                📝 Logs
+              </Btn>
+              <Btn onClick={() => onNav("settings")}>
+                ⚙️ Settings
+              </Btn>
             </div>
+
+            {recentGrabs.length > 0 && (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
+                  Recent Grabs
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {recentGrabs.map((g, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13, padding: "4px 0", borderBottom: i < recentGrabs.length - 1 ? `1px solid ${t.borderL}` : "none" }}>
+                      <div style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <span style={{ color: t.text2, fontWeight: 500 }}>{g.torrent_name}</span>
+                        {g.author_blob && <span style={{ color: t.textDim, marginLeft: 8 }}>— {g.author_blob}</span>}
+                      </div>
+                      <span style={{ fontSize: 11, color: t.textDim, flexShrink: 0, marginLeft: 12 }}>
+                        {new Date(g.grabbed_at + "Z").toLocaleDateString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Tools */}

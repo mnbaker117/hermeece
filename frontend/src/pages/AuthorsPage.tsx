@@ -451,12 +451,12 @@ function RowActions({
           >
             Allow
           </Btn>
-          <Btn variant="secondary" disabled={busy} onClick={() => onMove("ignored")}>
+          <Btn variant="danger" disabled={busy} onClick={() => onMove("ignored")}>
             Ignore
           </Btn>
         </>
       )}
-      <Btn variant="danger" disabled={busy} onClick={onRemove}>
+      <Btn variant="ghost" disabled={busy} onClick={onRemove}>
         Remove
       </Btn>
     </div>
