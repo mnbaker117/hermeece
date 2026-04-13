@@ -70,16 +70,27 @@ def translate_path(
 
 
 def ensure_folder_exists(path: str) -> bool:
-    """Create the folder if it doesn't exist.
+    """Create the folder if it doesn't exist, with world-writable perms.
 
     Returns True if the folder exists (or was created), False on error.
     This is called before submitting to qBit so the save_path is valid.
     In Docker, the container needs write access to the mounted volume.
+
+    Permissions are set to 0o777 (world-writable) because the download
+    client may run as a different user/group than Hermeece. Without
+    world-writable, qBit v5's setSavePath/setLocation returns
+    "403 Cannot write to directory".
     """
     if not path:
         return False
     try:
-        Path(path).mkdir(parents=True, exist_ok=True)
+        p = Path(path)
+        p.mkdir(parents=True, exist_ok=True)
+        try:
+            import os
+            os.chmod(str(p), 0o777)
+        except (OSError, PermissionError):
+            pass
         return True
     except Exception:
         _log.exception("failed to create download folder: %s", path)

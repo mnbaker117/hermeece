@@ -375,17 +375,38 @@ class QbitClient:
             return False
 
     async def set_location(self, torrent_hash: str, location: str) -> bool:
-        """POST /api/v2/torrents/setLocation — move download to new path."""
+        """Move a torrent to a new save path.
+
+        Tries two qBit API endpoints:
+          1. setSavePath (qBit v5+) — the modern endpoint
+          2. setLocation (qBit v4) — fallback for older versions
+
+        qBit v5 deprecated setLocation; it may return 200 but silently
+        do nothing. setSavePath is the correct v5 endpoint but requires
+        the target directory to exist AND be writable by the qBit process.
+        """
         if not await self._ensure_logged_in():
             return False
         try:
+            # Try v5 API first: setSavePath
+            resp = await self._client.post(
+                "/api/v2/torrents/setSavePath",
+                data={"id": torrent_hash, "path": location},
+            )
+            if resp.status_code == 200:
+                return True
+            # Log the failure reason for debugging.
+            _log.info("qBit setSavePath returned %d: %s — trying setLocation",
+                       resp.status_code, resp.text[:80])
+
+            # Fallback to v4 API: setLocation
             resp = await self._client.post(
                 "/api/v2/torrents/setLocation",
                 data={"hashes": torrent_hash, "location": location},
             )
             return resp.status_code == 200
         except httpx.HTTPError as e:
-            _log.warning("qBit setLocation error: %s", e)
+            _log.warning("qBit set_location error: %s", e)
             return False
 
     async def recheck_torrent(self, torrent_hash: str) -> bool:
