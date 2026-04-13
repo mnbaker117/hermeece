@@ -51,6 +51,7 @@ interface ReviewItem {
       source?: string;
       source_url?: string;
       confidence?: number;
+      source_log?: { source: string; confidence: number | null; status: string }[];
     };
   };
   cover_path: string | null;
