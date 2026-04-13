@@ -24,8 +24,8 @@ interface MamStatusResponse {
 interface AuthorOverviewResponse { counts: Record<string, number>; }
 interface DataCounts { [key: string]: number; }
 interface BudgetEntry {
-  grab_id: number; torrent_name: string; author_blob: string;
-  seeding_seconds: number; remaining_seconds: number; last_check_at: string | null;
+  grab_id: number | null; torrent_name: string; author_blob: string;
+  seeding_seconds: number; remaining_seconds: number; source: string;
 }
 interface BudgetResponse {
   budget_used: number; budget_cap: number; ledger_active: number;
@@ -176,11 +176,14 @@ export default function Dashboard({ onNav }: DashboardProps) {
             {budget.entries.length > 0 && (
               <div style={{ flex: 1, minWidth: 280, maxWidth: 500 }}>
                 <div style={{ maxHeight: 160, overflowY: "auto" }}>
-                  {budget.entries.map((e) => {
+                  {budget.entries.map((e, i) => {
                     const pct = Math.min(100, (e.seeding_seconds / budget.seed_seconds_required) * 100);
                     return (
-                      <div key={e.grab_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", borderBottom: `1px solid ${t.borderL}`, fontSize: 12 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
+                      <div key={e.grab_id ?? `ext-${i}`} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", borderBottom: `1px solid ${t.borderL}`, fontSize: 12 }}>
+                        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                          {e.source === "external" && (
+                            <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: t.textDim + "22", color: t.textDim, fontWeight: 600, flexShrink: 0 }}>EXT</span>
+                          )}
                           <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: t.text2 }}>{e.torrent_name}</div>
                         </div>
                         <div style={{ width: 60, height: 4, borderRadius: 2, background: t.bg4, flexShrink: 0 }}>

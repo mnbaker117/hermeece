@@ -100,8 +100,9 @@ async def snatch_budget():
     """Snatch budget overview for the dashboard.
 
     Returns active ledger count, qbit extras, budget cap, queue size,
-    seed_seconds_required, and the active entries with their torrent
-    names + seedtimes so the UI can show a countdown to next release.
+    seed_seconds_required, and ALL under-threshold entries (both
+    Hermeece-submitted and manual/external) with seedtimes so the UI
+    can show a countdown to the true next release.
     """
     from app.database import get_db
     from app.rate_limit import ledger as ledger_mod, queue as queue_mod
@@ -113,10 +114,10 @@ async def snatch_budget():
     db = await get_db()
     try:
         active_rows = await ledger_mod.list_active(db)
-        extras = int(state._snatch_budget.get("qbit_extras", 0) or 0)
         queue_size = await queue_mod.size(db)
+        known_hashes = {row.qbit_hash for row in active_rows}
 
-        # Enrich active rows with torrent names from grabs table.
+        # Enrich ledger entries with torrent names from grabs table.
         entries = []
         for row in active_rows:
             cursor = await db.execute(
@@ -131,20 +132,42 @@ async def snatch_budget():
                 "author_blob": str(grab["author_blob"] or "") if grab else "",
                 "seeding_seconds": row.seeding_seconds,
                 "remaining_seconds": remaining,
-                "last_check_at": row.last_check_at,
+                "source": "hermeece",
             })
+
+        # Include qBit extras (manual/Autobrr adds) under the seedtime
+        # threshold so the widget shows the true full budget picture.
+        extras_count = 0
+        try:
+            qbit_torrents = await deps.qbit.list_torrents(category=deps.qbit_category)
+            for t in qbit_torrents:
+                if t.hash and t.hash not in known_hashes:
+                    if t.seeding_seconds < deps.seed_seconds_required:
+                        extras_count += 1
+                        remaining = max(0, deps.seed_seconds_required - t.seeding_seconds)
+                        entries.append({
+                            "grab_id": None,
+                            "torrent_name": t.name,
+                            "author_blob": "",
+                            "seeding_seconds": t.seeding_seconds,
+                            "remaining_seconds": remaining,
+                            "source": "external",
+                        })
+        except Exception:
+            # If qBit is unreachable, fall back to the cached count.
+            extras_count = int(state._snatch_budget.get("qbit_extras", 0) or 0)
 
         # Sort by remaining time ascending (closest to release first).
         entries.sort(key=lambda e: e["remaining_seconds"])
 
-        budget_used = len(active_rows) + max(0, extras)
+        budget_used = len(active_rows) + max(0, extras_count)
         next_release = entries[0]["remaining_seconds"] if entries else None
 
         return {
             "budget_used": budget_used,
             "budget_cap": deps.budget_cap,
             "ledger_active": len(active_rows),
-            "qbit_extras": extras,
+            "qbit_extras": extras_count,
             "queue_size": queue_size,
             "seed_seconds_required": deps.seed_seconds_required,
             "next_release_seconds": next_release,
