@@ -481,8 +481,9 @@ function CoverThumb({ item }: { item: ReviewItem }) {
                 key={i}
                 onClick={() => setActiveIdx(i)}
                 style={{
-                  width: 8, height: 8, borderRadius: "50%", border: "none",
-                  background: i === activeIdx ? theme.accent : theme.bg4,
+                  width: 14, height: 14, borderRadius: "50%",
+                  border: i === activeIdx ? `2px solid ${theme.accent}` : `2px solid ${theme.bg4}`,
+                  background: i === activeIdx ? theme.accent : "transparent",
                   cursor: "pointer", padding: 0,
                 }}
               />

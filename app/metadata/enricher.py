@@ -217,6 +217,26 @@ class MetadataEnricher:
 
 
 def _build_default_sources(config: EnrichmentConfig) -> list[MetaSource]:
+    # Load credentials for sources that need them.
+    hardcover_key = ""
+    try:
+        import asyncio
+        from app.secrets import get_secret
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Can't await in a sync context during startup — read from
+            # the config cache as a fallback.
+            from app.config import load_settings
+            hardcover_key = load_settings().get("hardcover_api_key", "") or ""
+        else:
+            hardcover_key = loop.run_until_complete(get_secret("hardcover_api_key")) or ""
+    except Exception:
+        try:
+            from app.config import load_settings
+            hardcover_key = load_settings().get("hardcover_api_key", "") or ""
+        except Exception:
+            pass
+
     out: list[MetaSource] = []
     for name in config.priority:
         if name in config.disabled_sources:
@@ -225,7 +245,11 @@ def _build_default_sources(config: EnrichmentConfig) -> list[MetaSource]:
         if cls is None:
             _log.warning("enricher: unknown source %r in priority list", name)
             continue
-        out.append(cls())
+        # Pass credentials to sources that need them.
+        if name == "hardcover" and hardcover_key:
+            out.append(cls(api_key=hardcover_key))
+        else:
+            out.append(cls())
     return out
 
 
