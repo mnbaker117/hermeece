@@ -428,12 +428,14 @@ class TestQbitFailures:
         finally:
             await db.close()
 
-    async def test_qbit_auth_failure_marks_failed_unknown(self, temp_db):
+    async def test_client_auth_failure_queues_for_retry(self, temp_db):
+        """When the download client is unreachable (auth_failed), the
+        grab is queued for retry instead of permanently failing."""
         qbit = _FakeQbit(
             add_result=AddResult(
                 success=False,
                 failure_kind="auth_failed",
-                failure_detail="qBit re-login failed",
+                failure_detail="client re-login failed",
             )
         )
         deps = _make_deps(
@@ -442,10 +444,13 @@ class TestQbitFailures:
         )
         result = await handle_announce(deps, _make_announce())
 
+        assert result.action == "queue"
+        assert "client_unreachable" in result.reason
+
         db = await get_db()
         try:
             grab = await grabs_storage.get_grab(db, result.grab_id)
-            assert grab.state == grabs_storage.STATE_FAILED_UNKNOWN
+            assert grab.state == grabs_storage.STATE_PENDING_QUEUE
         finally:
             await db.close()
 

@@ -142,6 +142,9 @@ class TransmissionClient:
                     failure_detail="already exists" if is_dup else "",
                 )
             return AddResult(success=True)
+        except httpx.HTTPError as e:
+            _log.warning("Transmission add_torrent network error: %s", e)
+            return AddResult(success=False, failure_kind="network_error", failure_detail=str(e))
         except Exception as e:
             _log.warning("Transmission add_torrent failed: %s", e)
             return AddResult(success=False, failure_kind="unknown", failure_detail=str(e))

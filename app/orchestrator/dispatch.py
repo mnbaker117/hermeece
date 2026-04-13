@@ -637,6 +637,35 @@ async def _dispatch_with_decision(
         )
 
         if not add_result.success:
+            # If the client is unreachable or auth failed, queue the
+            # grab so it can be retried when the client comes back.
+            # We already fetched the .torrent from MAM — losing it
+            # would waste a snatch. Only permanent failures (rejected,
+            # duplicate) stay as failed.
+            retriable = add_result.failure_kind in ("auth_failed", "network_error")
+            if retriable and deps.queue_mode_enabled:
+                await queue_mod.enqueue(db, grab_id)
+                await grabs_storage.set_state(
+                    db, grab_id, grabs_storage.STATE_PENDING_QUEUE,
+                    qbit_hash=qbit_hash,
+                    failed_reason=f"client unreachable, queued for retry: {add_result.failure_detail}",
+                )
+                _emit(deps, "queued_on_client_failure", {
+                    "grab_id": grab_id, "kind": add_result.failure_kind,
+                })
+                _log.warning(
+                    "download client unreachable for grab_id=%d — queued for retry (%s)",
+                    grab_id, add_result.failure_kind,
+                )
+                return DispatchResult(
+                    action="queue",
+                    reason=f"client_unreachable:{add_result.failure_kind}",
+                    announce_id=announce_id,
+                    grab_id=grab_id,
+                    qbit_hash=qbit_hash,
+                    error=add_result.failure_detail,
+                )
+
             failed_state = _add_failure_state(add_result)
             await grabs_storage.set_state(
                 db,
@@ -647,7 +676,7 @@ async def _dispatch_with_decision(
             )
             _emit(
                 deps,
-                "qbit_failed",
+                "client_failed",
                 {
                     "grab_id": grab_id,
                     "kind": add_result.failure_kind,
@@ -656,7 +685,7 @@ async def _dispatch_with_decision(
             )
             return DispatchResult(
                 action="submit",
-                reason=f"qbit_failed:{add_result.failure_kind}",
+                reason=f"client_failed:{add_result.failure_kind}",
                 announce_id=announce_id,
                 grab_id=grab_id,
                 qbit_hash=qbit_hash,

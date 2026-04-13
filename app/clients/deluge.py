@@ -136,6 +136,9 @@ class DelugeClient:
                 except Exception:
                     _log.debug("Deluge: failed to set label %r on %s", category, torrent_hash)
             return AddResult(success=True, torrent_hash=str(torrent_hash))
+        except httpx.HTTPError as e:
+            _log.warning("Deluge add_torrent network error: %s", e)
+            return AddResult(success=False, failure_kind="network_error", failure_detail=str(e))
         except Exception as e:
             _log.warning("Deluge add_torrent failed: %s", e)
             return AddResult(success=False, failure_kind="unknown", failure_detail=str(e))
