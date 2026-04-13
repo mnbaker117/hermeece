@@ -7,7 +7,7 @@ import { Btn } from "../components/Btn";
 import { Spin } from "../components/Spin";
 import { api } from "../api";
 import { useTheme } from "../theme";
-import { fmtNum, fmtBytes, fmtRatio } from "../lib/format";
+import { fmtNum, fmtBytes, fmtRatio, fmtDuration } from "../lib/format";
 
 interface DashboardProps { onNav: (page: string) => void; }
 
@@ -23,6 +23,15 @@ interface MamStatusResponse {
 }
 interface AuthorOverviewResponse { counts: Record<string, number>; }
 interface DataCounts { [key: string]: number; }
+interface BudgetEntry {
+  grab_id: number; torrent_name: string; author_blob: string;
+  seeding_seconds: number; remaining_seconds: number; last_check_at: string | null;
+}
+interface BudgetResponse {
+  budget_used: number; budget_cap: number; ledger_active: number;
+  qbit_extras: number; queue_size: number; seed_seconds_required: number;
+  next_release_seconds: number | null; entries: BudgetEntry[];
+}
 
 export default function Dashboard({ onNav }: DashboardProps) {
   const t = useTheme();
@@ -33,13 +42,14 @@ export default function Dashboard({ onNav }: DashboardProps) {
   const [authors, setAuthors] = useState<AuthorOverviewResponse | null>(null);
   const [counts, setCounts] = useState<DataCounts | null>(null);
   const [recentGrabs, setRecentGrabs] = useState<{ torrent_name: string; author_blob: string; grabbed_at: string }[]>([]);
+  const [budget, setBudget] = useState<BudgetResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
       try {
-        const [review, tentative, h, mamS, auth, cnt, recent] = await Promise.all([
+        const [review, tentative, h, mamS, auth, cnt, recent, budgetR] = await Promise.all([
           api.get<ReviewListResponse>("/v1/review"),
           api.get<TentativeListResponse>("/v1/tentative"),
           api.get<HealthResponse>("/health"),
@@ -47,12 +57,14 @@ export default function Dashboard({ onNav }: DashboardProps) {
           api.get<AuthorOverviewResponse>("/v1/authors").catch(() => null),
           api.get<DataCounts>("/v1/data/counts").catch(() => null),
           api.get<{ grabs: { torrent_name: string; author_blob: string; grabbed_at: string }[] }>("/v1/grabs/recent").catch(() => ({ grabs: [] })),
+          api.get<BudgetResponse>("/v1/grabs/budget").catch(() => null),
         ]);
         if (cancelled) return;
         setReviewCount(review.pending_count);
         setTentativeCount(tentative.items.length);
         setHealth(h); setMam(mamS); setAuthors(auth); setCounts(cnt);
         if (recent) setRecentGrabs(recent.grabs);
+        setBudget(budgetR);
         setError(null);
       } catch (e) { if (!cancelled) setError(String(e)); }
     };
@@ -132,6 +144,58 @@ export default function Dashboard({ onNav }: DashboardProps) {
           <button onClick={() => onNav("mam")} style={{ background: "none", border: "none", color: t.accent, cursor: "pointer", fontWeight: 600, fontSize: 13, textDecoration: "underline" }}>
             Fix →
           </button>
+        </div>
+      )}
+
+      {/* ── Snatch Budget ── */}
+      {budget && (
+        <div style={{ background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 12, padding: "20px 24px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>
+                Snatch Budget
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <span style={{ fontSize: 32, fontWeight: 700, color: budget.budget_used >= budget.budget_cap ? t.warn : t.accent }}>
+                  {budget.budget_used}
+                </span>
+                <span style={{ fontSize: 16, color: t.textDim }}>/ {budget.budget_cap}</span>
+              </div>
+              <div style={{ fontSize: 11, color: t.textDim, marginTop: 4 }}>
+                {budget.ledger_active} Hermeece + {budget.qbit_extras} manual
+                {budget.queue_size > 0 && <span style={{ color: t.warn, marginLeft: 8 }}>{budget.queue_size} queued</span>}
+              </div>
+              {budget.next_release_seconds !== null && (
+                <div style={{ fontSize: 12, color: t.accent, marginTop: 6 }}>
+                  Next release in {fmtDuration(budget.next_release_seconds)}
+                </div>
+              )}
+            </div>
+
+            {/* Active entries list */}
+            {budget.entries.length > 0 && (
+              <div style={{ flex: 1, minWidth: 280, maxWidth: 500 }}>
+                <div style={{ maxHeight: 160, overflowY: "auto" }}>
+                  {budget.entries.map((e) => {
+                    const pct = Math.min(100, (e.seeding_seconds / budget.seed_seconds_required) * 100);
+                    return (
+                      <div key={e.grab_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", borderBottom: `1px solid ${t.borderL}`, fontSize: 12 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: t.text2 }}>{e.torrent_name}</div>
+                        </div>
+                        <div style={{ width: 60, height: 4, borderRadius: 2, background: t.bg4, flexShrink: 0 }}>
+                          <div style={{ width: `${pct}%`, height: "100%", borderRadius: 2, background: pct >= 100 ? t.ok : t.accent }} />
+                        </div>
+                        <span style={{ width: 60, textAlign: "right", color: t.textDim, fontSize: 11, flexShrink: 0 }}>
+                          {e.remaining_seconds > 0 ? fmtDuration(e.remaining_seconds) : "done"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

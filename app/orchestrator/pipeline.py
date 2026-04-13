@@ -213,7 +213,13 @@ async def _prepare_book(
     a failure on the pipeline run.
     """
     loop = asyncio.get_event_loop()
-    source = Path(event.save_path)
+    # Scope the search to the specific torrent's directory, not the
+    # entire download root. qBit's save_path is the parent folder;
+    # the torrent_name is the subfolder (or file) the torrent created.
+    source = Path(event.save_path) / event.torrent_name
+    if not source.exists():
+        # Fallback: some single-file torrents don't create a subdirectory.
+        source = Path(event.save_path)
     book_files = await loop.run_in_executor(None, find_book_files, source)
 
     if not book_files:

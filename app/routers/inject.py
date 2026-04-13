@@ -95,6 +95,65 @@ async def recent_grabs():
         await db.close()
 
 
+@router.get("/budget")
+async def snatch_budget():
+    """Snatch budget overview for the dashboard.
+
+    Returns active ledger count, qbit extras, budget cap, queue size,
+    seed_seconds_required, and the active entries with their torrent
+    names + seedtimes so the UI can show a countdown to next release.
+    """
+    from app.database import get_db
+    from app.rate_limit import ledger as ledger_mod, queue as queue_mod
+
+    if state.dispatcher is None:
+        raise HTTPException(503, "dispatcher not initialized")
+
+    deps = state.dispatcher
+    db = await get_db()
+    try:
+        active_rows = await ledger_mod.list_active(db)
+        extras = int(state._snatch_budget.get("qbit_extras", 0) or 0)
+        queue_size = await queue_mod.size(db)
+
+        # Enrich active rows with torrent names from grabs table.
+        entries = []
+        for row in active_rows:
+            cursor = await db.execute(
+                "SELECT torrent_name, author_blob FROM grabs WHERE id = ?",
+                (row.grab_id,),
+            )
+            grab = await cursor.fetchone()
+            remaining = max(0, deps.seed_seconds_required - row.seeding_seconds)
+            entries.append({
+                "grab_id": row.grab_id,
+                "torrent_name": str(grab["torrent_name"]) if grab else "?",
+                "author_blob": str(grab["author_blob"] or "") if grab else "",
+                "seeding_seconds": row.seeding_seconds,
+                "remaining_seconds": remaining,
+                "last_check_at": row.last_check_at,
+            })
+
+        # Sort by remaining time ascending (closest to release first).
+        entries.sort(key=lambda e: e["remaining_seconds"])
+
+        budget_used = len(active_rows) + max(0, extras)
+        next_release = entries[0]["remaining_seconds"] if entries else None
+
+        return {
+            "budget_used": budget_used,
+            "budget_cap": deps.budget_cap,
+            "ledger_active": len(active_rows),
+            "qbit_extras": extras,
+            "queue_size": queue_size,
+            "seed_seconds_required": deps.seed_seconds_required,
+            "next_release_seconds": next_release,
+            "entries": entries,
+        }
+    finally:
+        await db.close()
+
+
 @router.post("/inject", response_model=InjectResponse)
 async def inject_endpoint(request: InjectRequest) -> InjectResponse:
     if state.dispatcher is None:

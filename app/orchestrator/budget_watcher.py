@@ -256,8 +256,27 @@ async def _resubmit_queued_grab(
         )
         return False
 
+    # Compute the save path (monthly folder if enabled) — same logic
+    # as the dispatcher's submit path. Without this, queued grabs
+    # land in the bare download root instead of the organized monthly
+    # subfolder, and the pipeline scans the entire root for files.
+    save_path = None
+    if deps.qbit_download_path and deps.monthly_download_folders:
+        from app.orchestrator.download_folders import (
+            current_month_folder,
+            ensure_folder_exists,
+            translate_path,
+        )
+        save_path = current_month_folder(deps.qbit_download_path)
+        local_save_path = translate_path(
+            save_path, deps.qbit_path_prefix, deps.local_path_prefix
+        )
+        ensure_folder_exists(local_save_path)
+
     add_result = await deps.qbit.add_torrent(
-        torrent_bytes, category=deps.qbit_category
+        torrent_bytes, category=deps.qbit_category,
+        save_path=save_path,
+        tags=deps.qbit_tags or None,
     )
 
     if not add_result.success:

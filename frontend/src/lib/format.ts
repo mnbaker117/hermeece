@@ -19,6 +19,15 @@ export function fmtBytes(n: number | null | undefined): string {
   return `${v.toFixed(i > 0 ? 2 : 0)} ${units[i]}`;
 }
 
+/** Format seconds as a compact duration: 3661 → "1h 1m", 86400 → "24h 0m" */
+export function fmtDuration(seconds: number): string {
+  if (seconds <= 0) return "0m";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h === 0) return `${m}m`;
+  return `${h}h ${m}m`;
+}
+
 /** Format a ratio with 1 decimal: 91925.2345 → "91,925.2" */
 export function fmtRatio(n: number | null | undefined): string {
   if (n === null || n === undefined) return "—";
