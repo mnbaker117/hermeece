@@ -25,7 +25,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 ::-webkit-scrollbar-thumb:hover { background: #3a3f50; }
 
 @media (max-width: 900px) {
-  .settings-grid { column-count: 1 !important; }
+  .settings-grid { grid-template-columns: 1fr !important; }
+  .settings-grid > * { grid-column: 1 !important; }
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }

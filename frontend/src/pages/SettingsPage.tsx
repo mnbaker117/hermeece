@@ -9,13 +9,13 @@ type S = Record<string, unknown>;
 
 // ── Shared settings components ──────────────────────────────────
 
-function SSection({ title, desc, defaultOpen = true, children }: {
-  title: string; desc?: string; defaultOpen?: boolean; children: ReactNode;
+function SSection({ title, desc, defaultOpen = true, col, children }: {
+  title: string; desc?: string; defaultOpen?: boolean; col?: 1 | 2; children: ReactNode;
 }) {
   const t = useTheme();
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div style={{ background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 12, marginBottom: 16, breakInside: "avoid" }}>
+    <div style={{ background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 12, marginBottom: 16, gridColumn: col || undefined }}>
       <div onClick={() => setOpen(!open)} style={{
         display: "flex", alignItems: "center", gap: 10, padding: "16px 24px",
         cursor: "pointer", userSelect: "none",
@@ -204,9 +204,9 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="settings-grid" style={{ columnCount: 2, columnGap: 16 }}>
+      <div className="settings-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px", alignItems: "start", gridAutoFlow: "dense" }}>
 
-      <SSection title="Pipeline" desc="Master controls for each stage">
+      <SSection col={1} title="Pipeline" desc="Master controls for each stage">
         <SF label="IRC Listener" desc="Connects to MAM's #announce channel and processes every new torrent through the filter gate." example="Disabling pauses all automatic grabbing. Manual injects still work.">
           <STog on={(s.mam_irc_enabled as boolean) ?? true} onToggle={() => upd("mam_irc_enabled", !(s.mam_irc_enabled ?? true))} label />
         </SF>
@@ -221,7 +221,7 @@ export default function SettingsPage() {
         </SF>
       </SSection>
 
-      <SSection title="Review & Enrichment" desc="Book approval workflow">
+      <SSection col={1} title="Review & Enrichment" desc="Book approval workflow">
         <SF label="Manual Review Queue" desc="Every downloaded book enters a review queue for your approval before Calibre delivery. Rejecting deletes the staged copy; the seeding original is untouched." example="Disabling sends books straight to the sink without review.">
           <STog on={(s.review_queue_enabled as boolean) ?? true} onToggle={() => upd("review_queue_enabled", !(s.review_queue_enabled ?? true))} label />
         </SF>
@@ -236,7 +236,7 @@ export default function SettingsPage() {
         </SF>
       </SSection>
 
-      <SSection title="Snatch Budget" desc="MAM active-snatches rate limiting">
+      <SSection col={1} title="Snatch Budget" desc="MAM active-snatches rate limiting">
         <SF label="Budget Cap" desc="Max active snatches. New grabs queue when full; oldest queue items rotate to the delayed folder." example="MAM default: 30 for new users, 200 for Power User+.">
           <input type="number" min={1} value={s.snatch_budget_cap as number ?? 200} onChange={e => upd("snatch_budget_cap", parseInt(e.target.value) || 200)} style={nist} />
         </SF>
@@ -257,7 +257,7 @@ export default function SettingsPage() {
         </SF>
       </SSection>
 
-      <SSection title="Grab Policy" desc="VIP, freeleech, and ratio protection">
+      <SSection col={2} title="Grab Policy" desc="VIP, freeleech, and ratio protection">
         <SF label="Always Grab VIP" desc="VIP torrents are free downloads that don't count against your ratio. Bypasses all other policy checks." example="Enabled = any VIP torrent from an allowed author is grabbed immediately.">
           <STog on={(s.policy_vip_always_grab as boolean) ?? true} onToggle={() => upd("policy_vip_always_grab", !(s.policy_vip_always_grab ?? true))} label />
         </SF>
@@ -272,7 +272,7 @@ export default function SettingsPage() {
         </SF>
       </SSection>
 
-      <SSection title="Notifications (ntfy)" desc="Push notifications">
+      <SSection col={1} title="Notifications (ntfy)" desc="Push notifications">
         <SF label="ntfy Server URL" desc="URL of your ntfy server (public or self-hosted)." example='"https://ntfy.sh" or "http://10.0.10.20:8080"'>
           <input value={(s.ntfy_url as string) || ""} onChange={e => upd("ntfy_url", e.target.value)} placeholder="https://ntfy.sh" style={{ ...ist, width: 300, minWidth: 200 }} />
         </SF>
@@ -305,7 +305,7 @@ export default function SettingsPage() {
         </SF>
       </SSection>
 
-      <SSection title="MyAnonamouse" desc="IRC + session credentials">
+      <SSection col={2} title="MyAnonamouse" desc="IRC + session credentials">
         <SF label="IRC Nickname" desc="Hermeece's nickname on MAM's IRC server (the name it connects as in #announce)." example='"Turtles81_hermeece"'>
           <input value={(s.mam_irc_nick as string) || ""} onChange={e => upd("mam_irc_nick", e.target.value)} placeholder="YourNick_hermeece" style={{ ...ist, width: 200 }} />
         </SF>
@@ -318,7 +318,7 @@ export default function SettingsPage() {
         } />)}
       </SSection>
 
-      <SSection title="Download Client" desc="Torrent client connection">
+      <SSection col={2} title="Download Client" desc="Torrent client connection">
         <SF label="Client Type" desc="Which torrent client Hermeece should connect to. MAM supports qBittorrent, Transmission, Deluge, and rTorrent.">
           <select value={(s.download_client_type as string) || "qbittorrent"} onChange={e => upd("download_client_type", e.target.value)}
             style={{ ...ist, width: 180, cursor: "pointer", appearance: "auto" }}>
@@ -352,7 +352,7 @@ export default function SettingsPage() {
         </SF>
       </SSection>
 
-      <SSection title="API Keys & Sink" desc="External services" defaultOpen={false}>
+      <SSection col={2} title="API Keys & Sink" desc="External services">
         {apiCreds.map(c => <CredField key={c.key} item={c} onSaved={loadCreds} desc="Bearer token from hardcover.app → Account → API. Enables richer series, ratings, and tag data." />)}
         <SF label="Default Sink" desc="Where approved books are delivered after review.">
           <select value={(s.default_sink as string) || "cwa"} onChange={e => upd("default_sink", e.target.value)}
@@ -371,13 +371,13 @@ export default function SettingsPage() {
         </SF>
       </SSection>
 
-      <SSection title="Operational" defaultOpen={false}>
+      <SSection col={1} title="Operational">
         <SF label="Verbose Logging" desc="Enable DEBUG-level output. Makes the log viewer much more detailed but noisier.">
           <STog on={!!s.verbose_logging} onToggle={() => upd("verbose_logging", !s.verbose_logging)} label />
         </SF>
       </SSection>
 
-      <SSection title="Data Management" desc="Clear pipeline data" defaultOpen={false}>
+      <SSection col={2} title="Data Management" desc="Clear pipeline data" defaultOpen={false}>
         <p style={{ fontSize: 12, color: t.textDim, marginBottom: 12, lineHeight: 1.5 }}>
           Safe operations clear data that rebuilds from future announces. Dangerous operations (⚠) require typed confirmation and cannot be undone.
         </p>
