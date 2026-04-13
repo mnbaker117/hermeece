@@ -347,10 +347,22 @@ class QbitClient:
     # ─── Migration helpers ───────────────────────────────────
 
     async def pause_torrent(self, torrent_hash: str) -> bool:
-        """POST /api/v2/torrents/pause."""
+        """Pause/stop a torrent.
+
+        Tries v5 API (stop) first, falls back to v4 (pause).
+        qBit v5 renamed pause → stop.
+        """
         if not await self._ensure_logged_in():
             return False
         try:
+            # v5: stop
+            resp = await self._client.post(
+                "/api/v2/torrents/stop",
+                data={"hashes": torrent_hash},
+            )
+            if resp.status_code == 200:
+                return True
+            # v4 fallback: pause
             resp = await self._client.post(
                 "/api/v2/torrents/pause",
                 data={"hashes": torrent_hash},
@@ -361,10 +373,22 @@ class QbitClient:
             return False
 
     async def resume_torrent(self, torrent_hash: str) -> bool:
-        """POST /api/v2/torrents/resume."""
+        """Resume/start a torrent.
+
+        Tries v5 API (start) first, falls back to v4 (resume).
+        qBit v5 renamed resume → start.
+        """
         if not await self._ensure_logged_in():
             return False
         try:
+            # v5: start
+            resp = await self._client.post(
+                "/api/v2/torrents/start",
+                data={"hashes": torrent_hash},
+            )
+            if resp.status_code == 200:
+                return True
+            # v4 fallback: resume
             resp = await self._client.post(
                 "/api/v2/torrents/resume",
                 data={"hashes": torrent_hash},
