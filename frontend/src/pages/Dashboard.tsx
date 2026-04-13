@@ -106,6 +106,8 @@ export default function Dashboard({ onNav }: DashboardProps) {
     return () => { cancelled = true; clearInterval(pollIv); clearInterval(tickIv); };
   }, []);
 
+  const cwaUrl = (settings?.cwa_web_url as string) || "";
+  const calibreUrl = (settings?.calibre_web_url as string) || "";
   const allowed = authors?.counts?.allowed ?? 0;
   const ignored = authors?.counts?.ignored ?? 0;
   const grabs = counts?.grabs ?? 0;
@@ -288,13 +290,13 @@ export default function Dashboard({ onNav }: DashboardProps) {
             <Btn onClick={() => onNav("delayed")}>
               ⏳ Delayed
             </Btn>
-            {settings?.cwa_web_url && (
-              <Btn onClick={() => window.open(String(settings.cwa_web_url), "_blank")}>
+            {cwaUrl && (
+              <Btn onClick={() => window.open(cwaUrl, "_blank")}>
                 📕 CWA
               </Btn>
             )}
-            {settings?.calibre_web_url && (
-              <Btn onClick={() => window.open(String(settings.calibre_web_url), "_blank")}>
+            {calibreUrl && (
+              <Btn onClick={() => window.open(calibreUrl, "_blank")}>
                 📗 Calibre
               </Btn>
             )}
