@@ -145,72 +145,69 @@ export default function Dashboard({ onNav }: DashboardProps) {
         <StatCard label="Total Grabs" value={grabs} icon="📥" color={t.text2} />
       </div>
 
-      {/* ── Quick Actions + Tools ── */}
-      <div style={{ background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 12, padding: 24 }}>
-        <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-          {/* Quick Actions + Recent Grabs */}
-          <div style={{ flex: "1 1 400px" }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 14 }}>
-              Quick Actions
-            </div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-              <Btn variant="primary" onClick={() => onNav("review")}>
-                📚 Review Books {reviewCount ? `(${reviewCount})` : ""}
-              </Btn>
-              <Btn onClick={() => onNav("tentative")}>
-                🔎 New Authors {tentativeCount ? `(${tentativeCount})` : ""}
-              </Btn>
-              <Btn onClick={() => onNav("ignored-weekly")}>
-                📊 Weekly Ignored
-              </Btn>
-              <Btn onClick={() => onNav("authors")}>
-                👤 Author Lists
-              </Btn>
-              <Btn onClick={() => onNav("filters")}>
-                🎯 Edit Filters
-              </Btn>
-              <Btn onClick={() => onNav("mam")}>
-                📡 MAM Status
-              </Btn>
-              <Btn onClick={() => onNav("logs")}>
-                📝 Logs
-              </Btn>
-              <Btn onClick={() => onNav("settings")}>
-                ⚙️ Settings
-              </Btn>
-            </div>
+      {/* ── Three-column widget: Quick Actions | Recent Activity | Tools ── */}
+      <div style={{ background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 12, padding: 24, display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 0, alignItems: "start" }}>
 
-            {recentGrabs.length > 0 && (
-              <>
-                <div style={{ fontSize: 12, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
-                  Recent Grabs
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {recentGrabs.map((g, i) => (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13, padding: "4px 0", borderBottom: i < recentGrabs.length - 1 ? `1px solid ${t.borderL}` : "none" }}>
-                      <div style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        <span style={{ color: t.text2, fontWeight: 500 }}>{g.torrent_name}</span>
-                        {g.author_blob && <span style={{ color: t.textDim, marginLeft: 8 }}>— {g.author_blob}</span>}
-                      </div>
-                      <span style={{ fontSize: 11, color: t.textDim, flexShrink: 0, marginLeft: 12 }}>
-                        {new Date(g.grabbed_at + "Z").toLocaleDateString()}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
+        {/* Left: Quick Actions */}
+        <div style={{ paddingRight: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12 }}>
+            Quick Actions
           </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Btn variant="primary" onClick={() => onNav("review")}>
+              📚 Review Books {reviewCount ? `(${reviewCount})` : ""}
+            </Btn>
+            <Btn onClick={() => onNav("tentative")}>
+              🔎 New Authors {tentativeCount ? `(${tentativeCount})` : ""}
+            </Btn>
+            <Btn onClick={() => onNav("ignored-weekly")}>
+              📊 Weekly Ignored
+            </Btn>
+            <Btn onClick={() => onNav("authors")}>
+              👤 Author Lists
+            </Btn>
+            <Btn onClick={() => onNav("filters")}>
+              🎯 Filters
+            </Btn>
+            <Btn onClick={() => onNav("delayed")}>
+              ⏳ Delayed
+            </Btn>
+          </div>
+        </div>
 
-          {/* Tools */}
-          <div style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", gap: 8, borderLeft: `1px solid ${t.borderL}`, paddingLeft: 24, justifyContent: "center" }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>
-              Tools
-            </div>
-            <ToolBtn label="Migration Wizard" icon="📦" onClick={() => onNav("migration")} />
-            <ToolBtn label="Delayed Torrents" icon="⏳" onClick={() => onNav("delayed")} />
-            <ToolBtn label="MAM Account" icon="📡" onClick={() => onNav("mam")} />
+        {/* Middle: Recent Activity */}
+        <div style={{ borderLeft: `1px solid ${t.borderL}`, borderRight: `1px solid ${t.borderL}`, paddingLeft: 20, paddingRight: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12 }}>
+            Recent Activity
           </div>
+          {recentGrabs.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {recentGrabs.map((g, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 12, padding: "6px 0", borderBottom: i < recentGrabs.length - 1 ? `1px solid ${t.borderL}` : "none" }}>
+                  <div style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span style={{ color: t.text2, fontWeight: 500 }}>{g.torrent_name}</span>
+                    {g.author_blob && <span style={{ color: t.textDim, marginLeft: 6 }}>— {g.author_blob}</span>}
+                  </div>
+                  <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0, marginLeft: 10 }}>
+                    {new Date(g.grabbed_at + "Z").toLocaleDateString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: t.textDim, fontStyle: "italic" }}>No recent grabs yet.</div>
+          )}
+        </div>
+
+        {/* Right: Tools */}
+        <div style={{ paddingLeft: 20, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>
+            Tools
+          </div>
+          <ToolBtn label="Migration" icon="📦" onClick={() => onNav("migration")} />
+          <ToolBtn label="MAM Account" icon="📡" onClick={() => onNav("mam")} />
+          <ToolBtn label="Logs" icon="📝" onClick={() => onNav("logs")} />
+          <ToolBtn label="Settings" icon="⚙️" onClick={() => onNav("settings")} />
         </div>
       </div>
     </div>
