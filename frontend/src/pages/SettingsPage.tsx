@@ -378,6 +378,12 @@ export default function SettingsPage() {
             <option value="audiobookshelf">Audiobookshelf — library folder</option>
           </select>
         </SF>
+        <SF label="CWA Web URL" desc="Calibre-Web Automated web interface URL. Shows a quick-launch button on the Dashboard." example='e.g. "http://10.0.10.20:8083"'>
+          <input value={(s.cwa_web_url as string) || ""} onChange={e => upd("cwa_web_url", e.target.value)} placeholder="http://host:port" style={{ ...ist, width: 260 }} />
+        </SF>
+        <SF label="Calibre Web URL" desc="Calibre Content Server web interface URL. Shows a quick-launch button on the Dashboard." example='e.g. "http://10.0.10.20:8081"'>
+          <input value={(s.calibre_web_url as string) || ""} onChange={e => upd("calibre_web_url", e.target.value)} placeholder="http://host:port" style={{ ...ist, width: 260 }} />
+        </SF>
         <SF label="Emergency Export Path" desc="If the sink is unreachable after multiple retries, books are dumped here so they're never lost. Leave empty to keep retrying indefinitely." example='e.g. "/emergency-books" — mount this path in docker-compose'>
           <input value={(s.emergency_export_path as string) || ""} onChange={e => upd("emergency_export_path", e.target.value)} placeholder="/emergency-books" style={{ ...ist, width: 220 }} />
         </SF>
