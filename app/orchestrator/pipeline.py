@@ -62,6 +62,41 @@ from app.storage import review_queue as review_storage
 
 _log = logging.getLogger("hermeece.orchestrator.pipeline")
 
+# Book extensions used for single-file torrent matching.
+_BOOK_EXTS = (".epub", ".mobi", ".azw", ".azw3", ".pdf", ".m4b", ".mp3", ".cbz", ".cbr")
+
+
+def _find_torrent_file(parent: Path, torrent_name: str) -> Optional[Path]:
+    """Find a single-file torrent's actual file on disk.
+
+    qBit's torrent name often differs from the filename:
+      - "Down Below" → "Down Below by Scott Moon.epub"
+      - "Ascendant" → "Ascendant by M R Forbes.epub"
+
+    Tries in order:
+      1. Exact name with any book extension
+      2. Any file in the directory whose stem starts with the torrent name
+    Returns the matched Path, or None to let the caller fall back.
+    """
+    if not parent.is_dir():
+        return None
+
+    name_lower = torrent_name.lower()
+
+    # Try exact name + extension.
+    for ext in _BOOK_EXTS:
+        candidate = parent / f"{torrent_name}{ext}"
+        if candidate.exists():
+            return candidate
+
+    # Try prefix match: file stem starts with the torrent name.
+    for f in parent.iterdir():
+        if f.is_file() and f.suffix.lower() in _BOOK_EXTS:
+            if f.stem.lower().startswith(name_lower):
+                return f
+
+    return None
+
 
 def _get_mam_token() -> str:
     """Read the current MAM token from the cookie module's in-memory cache."""
@@ -218,8 +253,14 @@ async def _prepare_book(
     # the torrent_name is the subfolder (or file) the torrent created.
     source = Path(event.save_path) / event.torrent_name
     if not source.exists():
-        # Fallback: some single-file torrents don't create a subdirectory.
-        source = Path(event.save_path)
+        # Single-file torrents: the torrent_name may not include the
+        # extension, or the filename on disk may differ (e.g. torrent
+        # "Down Below" → file "Down Below by Scott Moon.epub"). Try to
+        # find a file whose name starts with the torrent name, or glob
+        # for the torrent name with any book extension.
+        parent = Path(event.save_path)
+        matched = _find_torrent_file(parent, event.torrent_name)
+        source = matched if matched else parent
     book_files = await loop.run_in_executor(None, find_book_files, source)
 
     if not book_files:
