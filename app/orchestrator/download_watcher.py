@@ -91,7 +91,7 @@ async def check_for_completions(
     events: list[CompletionEvent] = []
 
     if rows:
-        _log.info(
+        _log.debug(
             "download watcher: checking %d submitted grabs against %d qBit torrents",
             len(rows), len(qbit_snapshot),
         )
@@ -103,14 +103,14 @@ async def check_for_completions(
 
         snap = qbit_snapshot.get(grab.qbit_hash)
         if snap is None:
-            _log.info(
+            _log.debug(
                 "download watcher: grab_id=%d hash=%s not in qBit snapshot",
                 grab.id, grab.qbit_hash[:16],
             )
             continue
 
         if snap.state in _DOWNLOADING_STATES:
-            _log.info(
+            _log.debug(
                 "download watcher: grab_id=%d still downloading (state=%s)",
                 grab.id, snap.state,
             )
