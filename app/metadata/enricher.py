@@ -151,6 +151,7 @@ class MetadataEnricher:
         merged: Optional[MetaRecord] = None
         source_log: list[dict] = []  # per-source contributions
         have_exact_id = False  # MAM exact-ID gives us the match; keep querying for supplemental data
+        known_series = ""  # populated by MAM exact-ID for series-aware scoring
 
         for src in sources:
             result = await self._safe_search(src, title=title, author=author)
@@ -161,12 +162,15 @@ class MetadataEnricher:
             # confidence=1.0. Only re-score with Jaccard when the source
             # did a fuzzy text search (confidence not already pinned).
             is_exact = result.confidence >= 1.0
+            if is_exact and result.series:
+                known_series = result.series
             if not is_exact:
                 result.confidence = score_match(
                     record_title=result.title or title,
                     record_authors=result.authors or [],
                     search_title=title,
                     search_authors=author,
+                    known_series=known_series,
                 )
             _log.info(
                 "enricher: %s → confidence %.2f (title=%r)",
