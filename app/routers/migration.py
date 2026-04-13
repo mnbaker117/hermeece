@@ -120,9 +120,23 @@ def _is_already_correct(save_path: str, target_folder: str, structure: str) -> b
 
 
 def _find_primary_mtime(local_dir: Path) -> Optional[float]:
-    """Walk a download directory and return the mtime of the largest file."""
+    """Walk a download directory and return the mtime of the largest file.
+
+    Only inspects the given directory — never scans parent directories.
+    If the path is a regular file (single-file torrent), returns its mtime.
+    Falls back to the directory's own mtime only if the directory exists
+    but contains no regular files (unlikely for a completed download).
+    """
     if not local_dir.exists():
         return None
+
+    # Single-file torrent: local_dir is actually a file.
+    if local_dir.is_file():
+        try:
+            return local_dir.stat().st_mtime
+        except OSError:
+            return None
+
     best_size = 0
     best_mtime: Optional[float] = None
     try:
@@ -136,6 +150,8 @@ def _find_primary_mtime(local_dir: Path) -> Optional[float]:
         pass
     if best_mtime is not None:
         return best_mtime
+    # Last resort: directory's own mtime (when the dir exists but we
+    # couldn't iterate its contents — e.g. permission denied on children).
     try:
         return local_dir.stat().st_mtime
     except OSError:
@@ -171,9 +187,9 @@ async def preview() -> PreviewResponse:
         )
         local_dir = Path(local_save) / t.name if t.name else Path(local_save)
 
+        # Only inspect the specific torrent directory — never scan the
+        # parent, which would pick up another torrent's file dates.
         mtime = _find_primary_mtime(local_dir)
-        if mtime is None:
-            mtime = _find_primary_mtime(Path(local_save))
 
         if mtime is not None:
             target_folder = _target_folder_for_mtime(mtime, structure)
@@ -220,15 +236,16 @@ async def execute(body: ExecuteRequest) -> ExecuteResponse:
         raise HTTPException(400, "qbit_download_path not configured")
 
     qbit: QbitClient = deps.qbit  # type: ignore
-    all_torrents = await deps.qbit.list_torrents(category=deps.qbit_category)
-    torrent_map = {t.hash: t for t in all_torrents}
 
     results: list[ExecuteResultItem] = []
     succeeded = 0
     failed = 0
 
     for h in body.hashes:
-        t = torrent_map.get(h)
+        # Re-fetch each torrent individually so we always have its
+        # current save_path — critical when processing a batch where
+        # earlier items may have changed qBit state.
+        t = await deps.qbit.get_torrent(h)
         if t is None:
             results.append(ExecuteResultItem(hash=h, name="?", ok=False, error="not found"))
             failed += 1
@@ -238,9 +255,9 @@ async def execute(body: ExecuteRequest) -> ExecuteResponse:
             t.save_path, deps.qbit_path_prefix, deps.local_path_prefix
         )
         local_dir = Path(local_save) / t.name if t.name else Path(local_save)
+
+        # Only inspect the specific torrent directory — never the parent.
         mtime = _find_primary_mtime(local_dir)
-        if mtime is None:
-            mtime = _find_primary_mtime(Path(local_save))
         if mtime is None:
             results.append(ExecuteResultItem(hash=h, name=t.name, ok=False, error="could not determine mtime"))
             failed += 1
@@ -309,7 +326,13 @@ async def resume_all():
 
 
 async def _migrate_one(qbit: QbitClient, torrent_hash: str, target_path: str) -> bool:
-    """Relocate one torrent: [pause if active] → setLocation → recheck → [resume if was active]."""
+    """Relocate one torrent: [pause if active] → setSavePath → verify → recheck → [resume].
+
+    After calling setSavePath we verify that qBit actually updated the
+    torrent's save_path to the target. qBit v5's setSavePath can return
+    200 without doing anything if the target directory doesn't exist or
+    isn't writable — the 200 is NOT a reliable success signal.
+    """
     info = await qbit.get_torrent(torrent_hash)
     if info is None:
         return False
@@ -327,7 +350,25 @@ async def _migrate_one(qbit: QbitClient, torrent_hash: str, target_path: str) ->
         if was_active:
             await qbit.resume_torrent(torrent_hash)
         return False
-    await asyncio.sleep(1)
+
+    # Give qBit time to process the move, then verify it took effect.
+    await asyncio.sleep(2)
+
+    verify = await qbit.get_torrent(torrent_hash)
+    if verify is None:
+        _log.warning("torrent %s disappeared after setSavePath", torrent_hash)
+        return False
+
+    actual = verify.save_path.rstrip("/")
+    expected = target_path.rstrip("/")
+    if actual != expected:
+        _log.warning(
+            "setSavePath for %s did NOT take effect: expected %r, got %r",
+            torrent_hash, expected, actual,
+        )
+        if was_active:
+            await qbit.resume_torrent(torrent_hash)
+        return False
 
     if not await qbit.recheck_torrent(torrent_hash):
         if was_active:
