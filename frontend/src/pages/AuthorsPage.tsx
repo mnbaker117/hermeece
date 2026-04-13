@@ -370,7 +370,6 @@ export default function AuthorsPage() {
                   <td style={{ padding: "8px 6px", textAlign: "right" }}>
                     <RowActions
                       tab={tab}
-                      row={row}
                       busy={busy}
                       onMove={(to) => move(row, to)}
                       onRemove={() => remove(row)}
@@ -418,7 +417,6 @@ function RowActions({
   onRemove,
 }: {
   tab: ListName;
-  row: AuthorRow;
   busy: boolean;
   onMove: (to: "allowed" | "ignored") => void;
   onRemove: () => void;

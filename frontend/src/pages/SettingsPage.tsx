@@ -166,7 +166,7 @@ export default function SettingsPage() {
   const [testingNtfy, setTestingNtfy] = useState(false);
   const [ntfyResult, setNtfyResult] = useState<string | null>(null);
 
-  useEffect(() => { api.get<S>("/v1/settings").then(setS).catch(() => {}); }, []);
+  useEffect(() => { api.get<S>("/v1/settings").then(setS).catch(e => setMsg(`Error loading settings: ${e}`)); }, []);
   const loadCreds = () => api.get<{ items: CredItem[] }>("/v1/credentials").then(r => setCreds(r.items)).catch(() => {});
   useEffect(() => { loadCreds(); }, []);
 
@@ -180,7 +180,8 @@ export default function SettingsPage() {
   const save = async () => {
     setSaving(true); setMsg("");
     try { await api.patch("/v1/settings", s); setMsg("Settings saved!"); const fresh = await api.get<S>("/v1/settings"); setS(fresh); setTimeout(() => setMsg(""), 3000); }
-    catch { setMsg("Error saving"); } setSaving(false);
+    catch { setMsg("Error saving"); }
+    finally { setSaving(false); }
   };
 
   const testNtfy = async () => {
@@ -411,7 +412,7 @@ function QbitTestButton() {
     finally { setBusy(false); setTimeout(() => setResult(null), 8000); }
   }
   return (
-    <SF label="Test Connection" desc="Attempt a login to verify URL, username, and password are correct." warn="qBittorrent bans the IP after 5 failed login attempts (30-minute ban). Use sparingly.">
+    <SF label="Test Connection" desc="Attempt a login to verify URL, username, and password are correct." warn="Some clients (e.g. qBittorrent) ban the IP after repeated failed login attempts. Use sparingly.">
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <Btn variant="ghost" onClick={test} disabled={busy}>{busy ? <Spin size={14} /> : "Test"}</Btn>
         {result && <span style={{ fontSize: 11, color: result.startsWith("✓") ? t.ok : t.err, fontWeight: 600 }}>{result}</span>}

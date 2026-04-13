@@ -27,6 +27,7 @@ export default function MigrationPage() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [tab, setTab] = useState<"pending" | "done">("pending");
   const [isDryRun, setIsDryRun] = useState(false);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   async function scan() {
     setBusy(true); setError(null); setResults([]);
@@ -73,7 +74,7 @@ export default function MigrationPage() {
     setBusy(true);
     try {
       const r = await api.post<{ resumed: number; total: number }>("/v1/migration/resume-all");
-      setError(`Resumed ${r.resumed} of ${r.total} torrents`);
+      setSuccessMsg(`Resumed ${r.resumed} of ${r.total} torrents`);
     } catch (e) { setError(String(e)); }
     finally { setBusy(false); }
   }
@@ -97,7 +98,8 @@ export default function MigrationPage() {
         Move existing downloads into the configured folder structure based on file modification dates.
       </p>
 
-      {error && <div style={{ background: (error.startsWith("Resumed") ? t.ok : t.err) + "22", border: `1px solid ${(error.startsWith("Resumed") ? t.ok : t.err)}55`, color: error.startsWith("Resumed") ? t.ok : t.err, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{error}</div>}
+      {error && <div style={{ background: t.err + "22", border: `1px solid ${t.err}55`, color: t.err, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{error}</div>}
+      {successMsg && <div style={{ background: t.ok + "22", border: `1px solid ${t.ok}55`, color: t.ok, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{successMsg}</div>}
 
       {!preview && (
         <Section title="Getting started">

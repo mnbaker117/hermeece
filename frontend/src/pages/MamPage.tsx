@@ -14,6 +14,7 @@ import { Btn } from "../components/Btn";
 import { Section } from "../components/Section";
 import { Spin } from "../components/Spin";
 import { api } from "../api";
+import { fmtBytes } from "../lib/format";
 import { useTheme } from "../theme";
 
 interface MamStatus {
@@ -35,19 +36,6 @@ interface MamStatus {
 interface ValidateResponse {
   ok: boolean;
   message: string;
-}
-
-function formatBytes(n: number | null): string {
-  if (n === null || n === undefined) return "—";
-  if (n < 1024) return `${n} B`;
-  const units = ["KB", "MB", "GB", "TB", "PB"];
-  let v = n / 1024;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(2)} ${units[i]}`;
 }
 
 function formatAge(seconds: number | null): string {
@@ -213,8 +201,8 @@ export default function MamPage() {
           <Section title="Account">
             <KV label="Username">{status.username || "—"}</KV>
             <KV label="User ID">{status.uid ?? "—"}</KV>
-            <KV label="Uploaded">{formatBytes(status.uploaded_bytes)}</KV>
-            <KV label="Downloaded">{formatBytes(status.downloaded_bytes)}</KV>
+            <KV label="Uploaded">{fmtBytes(status.uploaded_bytes)}</KV>
+            <KV label="Downloaded">{fmtBytes(status.downloaded_bytes)}</KV>
           </Section>
 
           <Section
