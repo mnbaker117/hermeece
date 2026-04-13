@@ -128,8 +128,16 @@ export default function Dashboard({ onNav }: DashboardProps) {
               <StatusPill label="IRC Listener" ok={health?.dispatcher_ready ?? false} />
               <StatusPill label="MAM Cookie" ok={mam?.validation_ok ?? false} warn={mam?.cookie_configured === true && !mam?.validation_ok} />
               <StatusPill label="Budget Watcher" ok={health?.dispatcher_ready ?? false} />
-              <div style={{ fontSize: 11, color: t.textDim, marginLeft: 8, opacity: 0.7 }}>
-                {countdown > 0 ? `${countdown}s` : "..."}
+              <div style={{
+                marginLeft: 12, background: t.bg3, borderRadius: 8,
+                padding: "8px 14px", display: "flex", alignItems: "center", gap: 8,
+              }}>
+                <div style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>
+                  Next poll
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: countdown <= 5 ? t.accent : t.text2, minWidth: 32, textAlign: "center" }}>
+                  {countdown > 0 ? `${countdown}s` : "..."}
+                </div>
               </div>
             </div>
           </div>
