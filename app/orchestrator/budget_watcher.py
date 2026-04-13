@@ -103,12 +103,17 @@ async def _tick_inner(deps: DispatcherDeps, db) -> TickResult:
     snapshot = {t.hash: t.seeding_seconds for t in qbit_torrents if t.hash}
 
     # Count manual/Autobrr adds — any torrent in the watched category
-    # that doesn't have a ledger row. The dispatcher adds this count
-    # to its own `count_active` read so the MAM snatch cap isn't
-    # over-committed when the user is actively manually adding books.
+    # that doesn't have a ledger row AND hasn't yet reached the
+    # seedtime threshold. Torrents that have seeded past the threshold
+    # are "released" from MAM's perspective and don't count against
+    # the snatch budget, even if Hermeece didn't submit them.
     try:
         known_hashes = {row.qbit_hash for row in await ledger_mod.list_active(db)}
-        extras = sum(1 for h in snapshot.keys() if h and h not in known_hashes)
+        extras = 0
+        for t in qbit_torrents:
+            if t.hash and t.hash not in known_hashes:
+                if t.seeding_seconds < deps.seed_seconds_required:
+                    extras += 1
         from app import state as _state
         _state._snatch_budget["qbit_extras"] = extras
         _state._snatch_budget["last_updated_at"] = None  # touched; UI mirror
