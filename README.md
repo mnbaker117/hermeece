@@ -10,6 +10,10 @@
 [![Python](https://img.shields.io/badge/python-3.12-blue?style=flat-square&logo=python)](https://www.python.org/)
 [![React](https://img.shields.io/badge/react-18-61DAFB?style=flat-square&logo=react)](https://react.dev/)
 [![Tests](https://img.shields.io/badge/tests-625_passing-brightgreen?style=flat-square)](tests/)
+[![Last Commit](https://img.shields.io/github/last-commit/mnbaker117/hermeece?style=flat-square)](https://github.com/mnbaker117/hermeece/commits/main)
+[![Code Size](https://img.shields.io/github/languages/code-size/mnbaker117/hermeece?style=flat-square)](https://github.com/mnbaker117/hermeece)
+[![Image](https://img.shields.io/badge/image-ghcr.io-purple?style=flat-square&logo=docker)](https://github.com/mnbaker117/hermeece/pkgs/container/hermeece)
+[![Stars](https://img.shields.io/github/stars/mnbaker117/hermeece?style=flat-square)](https://github.com/mnbaker117/hermeece/stargazers)
 
 <!-- TODO: Add screenshot — full dashboard with budget widget, MAM card, status pills -->
 <!-- ![Hermeece Dashboard](docs/images/dashboard-hero.png) -->
