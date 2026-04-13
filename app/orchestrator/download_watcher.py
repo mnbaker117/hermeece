@@ -90,6 +90,12 @@ async def check_for_completions(
 
     events: list[CompletionEvent] = []
 
+    if rows:
+        _log.debug(
+            "download watcher: checking %d submitted grabs against %d qBit torrents",
+            len(rows), len(qbit_snapshot),
+        )
+
     for row in rows:
         grab = grabs_storage._row_to_grab(row)
         if not grab.qbit_hash:
@@ -97,12 +103,17 @@ async def check_for_completions(
 
         snap = qbit_snapshot.get(grab.qbit_hash)
         if snap is None:
-            # Torrent not in qBit at all — the ledger reconciliation
-            # handles the "removed" case. We don't process it here.
+            _log.debug(
+                "download watcher: grab_id=%d hash=%s not in qBit snapshot",
+                grab.id, grab.qbit_hash[:16],
+            )
             continue
 
         if snap.state in _DOWNLOADING_STATES:
-            # Still downloading — nothing to do yet.
+            _log.debug(
+                "download watcher: grab_id=%d still downloading (state=%s)",
+                grab.id, snap.state,
+            )
             continue
 
         # Check if we already have a pipeline run for this grab.
