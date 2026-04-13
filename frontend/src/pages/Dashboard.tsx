@@ -33,17 +33,33 @@ interface BudgetResponse {
   next_release_seconds: number | null; entries: BudgetEntry[];
 }
 
+// Module-level cache so dashboard data persists across page navigations.
+// The component reads from cache on mount and updates it after each poll.
+const _cache: {
+  reviewCount: number | null; tentativeCount: number | null;
+  health: HealthResponse | null; mam: MamStatusResponse | null;
+  authors: AuthorOverviewResponse | null; counts: DataCounts | null;
+  recentGrabs: { torrent_name: string; author_blob: string; grabbed_at: string }[];
+  budget: BudgetResponse | null;
+} = {
+  reviewCount: null, tentativeCount: null, health: null, mam: null,
+  authors: null, counts: null, recentGrabs: [], budget: null,
+};
+
+const POLL_INTERVAL = 30;
+
 export default function Dashboard({ onNav }: DashboardProps) {
   const t = useTheme();
-  const [reviewCount, setReviewCount] = useState<number | null>(null);
-  const [tentativeCount, setTentativeCount] = useState<number | null>(null);
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [mam, setMam] = useState<MamStatusResponse | null>(null);
-  const [authors, setAuthors] = useState<AuthorOverviewResponse | null>(null);
-  const [counts, setCounts] = useState<DataCounts | null>(null);
-  const [recentGrabs, setRecentGrabs] = useState<{ torrent_name: string; author_blob: string; grabbed_at: string }[]>([]);
-  const [budget, setBudget] = useState<BudgetResponse | null>(null);
+  const [reviewCount, setReviewCount] = useState<number | null>(_cache.reviewCount);
+  const [tentativeCount, setTentativeCount] = useState<number | null>(_cache.tentativeCount);
+  const [health, setHealth] = useState<HealthResponse | null>(_cache.health);
+  const [mam, setMam] = useState<MamStatusResponse | null>(_cache.mam);
+  const [authors, setAuthors] = useState<AuthorOverviewResponse | null>(_cache.authors);
+  const [counts, setCounts] = useState<DataCounts | null>(_cache.counts);
+  const [recentGrabs, setRecentGrabs] = useState(_cache.recentGrabs);
+  const [budget, setBudget] = useState<BudgetResponse | null>(_cache.budget);
   const [error, setError] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState(POLL_INTERVAL);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,11 +82,20 @@ export default function Dashboard({ onNav }: DashboardProps) {
         if (recent) setRecentGrabs(recent.grabs);
         setBudget(budgetR);
         setError(null);
+        // Update module-level cache.
+        _cache.reviewCount = review.pending_count;
+        _cache.tentativeCount = tentative.items.length;
+        _cache.health = h; _cache.mam = mamS; _cache.authors = auth; _cache.counts = cnt;
+        if (recent) _cache.recentGrabs = recent.grabs;
+        _cache.budget = budgetR;
+        // Reset countdown after successful poll.
+        setCountdown(POLL_INTERVAL);
       } catch (e) { if (!cancelled) setError(String(e)); }
     };
     refresh();
-    const iv = setInterval(refresh, 30_000);
-    return () => { cancelled = true; clearInterval(iv); };
+    const pollIv = setInterval(refresh, POLL_INTERVAL * 1000);
+    const tickIv = setInterval(() => setCountdown((c) => Math.max(0, c - 1)), 1000);
+    return () => { cancelled = true; clearInterval(pollIv); clearInterval(tickIv); };
   }, []);
 
   const allowed = authors?.counts?.allowed ?? 0;
@@ -98,11 +123,14 @@ export default function Dashboard({ onNav }: DashboardProps) {
                 : "Starting up…"}
             </p>
             {/* Status pills row */}
-            <div style={{ display: "flex", gap: 20, marginTop: 16, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 20, marginTop: 16, flexWrap: "wrap", alignItems: "center" }}>
               <StatusPill label="Dispatcher" ok={health?.dispatcher_ready ?? false} />
               <StatusPill label="IRC Listener" ok={health?.dispatcher_ready ?? false} />
               <StatusPill label="MAM Cookie" ok={mam?.validation_ok ?? false} warn={mam?.cookie_configured === true && !mam?.validation_ok} />
               <StatusPill label="Budget Watcher" ok={health?.dispatcher_ready ?? false} />
+              <div style={{ fontSize: 11, color: t.textDim, marginLeft: 8, opacity: 0.7 }}>
+                {countdown > 0 ? `${countdown}s` : "..."}
+              </div>
             </div>
           </div>
 
