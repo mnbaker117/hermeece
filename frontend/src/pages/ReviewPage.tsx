@@ -244,6 +244,7 @@ function ReviewCard({
   const publisher = resolvedPublisher;
   const pubDate = resolvedPubDate;
   const pageCount = resolvedPageCount;
+  const sourceLog = (e?.source_log as { source: string; confidence: number | null; status: string }[] | undefined) ?? [];
   const sourceLabel = e?.source ? `via ${e.source}` : null;
   const confidence = e?.confidence;
 
@@ -278,12 +279,28 @@ function ReviewCard({
               {title}
             </h3>
           )}
-          {sourceLabel && (
+          {sourceLog.length > 0 ? (
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {sourceLog.map((sl) => (
+                <span key={sl.source} style={{
+                  fontSize: 10, padding: "2px 7px", borderRadius: 99,
+                  background: sl.status === "matched" ? theme.bg3 : theme.bg4,
+                  color: sl.status === "matched"
+                    ? (sl.confidence !== null && sl.confidence >= 0.8 ? theme.ok : theme.text2)
+                    : theme.textDim,
+                  fontWeight: 500,
+                }}>
+                  {sl.source}
+                  {sl.confidence !== null ? ` ${(sl.confidence * 100).toFixed(0)}%` : " —"}
+                </span>
+              ))}
+            </div>
+          ) : sourceLabel ? (
             <span style={{ fontSize: 11, color: theme.textDim, background: theme.bg3, padding: "2px 8px", borderRadius: 99 }}>
               {sourceLabel}
               {confidence !== undefined && ` · ${(confidence * 100).toFixed(0)}%`}
             </span>
-          )}
+          ) : null}
         </div>
         {editing ? (
           <EditInput value={editAuthors} onChange={setEditAuthors} placeholder="Author(s)" style={{ fontSize: 14 }} />
@@ -431,10 +448,14 @@ function CoverThumb({ item }: { item: ReviewItem }) {
   const theme = useTheme();
   const mamCover = item.metadata.cover_mam as string | null;
   const enrichedCover = item.metadata.cover_enriched as string | null;
-  const primaryCover = mamCover || item.cover_path || enrichedCover;
+  const covers = [mamCover, enrichedCover, item.cover_path].filter(Boolean) as string[];
+  // Deduplicate.
+  const uniqueCovers = [...new Set(covers)];
+  const [activeIdx, setActiveIdx] = useState(0);
+  const activeCover = uniqueCovers[activeIdx] || null;
 
-  if (primaryCover) {
-    const coverUrl = `/api/v1/covers/${encodeURIComponent(primaryCover)}`;
+  if (activeCover) {
+    const coverUrl = `/api/v1/covers/${encodeURIComponent(activeCover)}`;
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 4, width: 120 }}>
         <img
@@ -452,20 +473,23 @@ function CoverThumb({ item }: { item: ReviewItem }) {
             (e.target as HTMLImageElement).style.display = "none";
           }}
         />
-        {mamCover && enrichedCover && mamCover !== enrichedCover && (
-          <a
-            href={`/api/v1/covers/${encodeURIComponent(enrichedCover)}`}
-            target="_blank"
-            rel="noreferrer"
-            style={{
-              fontSize: 10,
-              color: theme.accent,
-              textDecoration: "none",
-              textAlign: "center",
-            }}
-          >
-            Alt cover
-          </a>
+        {uniqueCovers.length > 1 && (
+          <div style={{ display: "flex", justifyContent: "center", gap: 4 }}>
+            {uniqueCovers.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setActiveIdx(i)}
+                style={{
+                  width: 8, height: 8, borderRadius: "50%", border: "none",
+                  background: i === activeIdx ? theme.accent : theme.bg4,
+                  cursor: "pointer", padding: 0,
+                }}
+              />
+            ))}
+            <span style={{ fontSize: 9, color: theme.textDim, marginLeft: 2 }}>
+              {activeIdx === 0 ? "MAM" : "Enriched"}
+            </span>
+          </div>
         )}
       </div>
     );

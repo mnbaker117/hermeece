@@ -45,7 +45,7 @@ class MetaRecord:
     confidence: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "title": self.title,
             "authors": list(self.authors),
             "series": self.series,
@@ -63,3 +63,7 @@ class MetaRecord:
             "external_id": self.external_id,
             "confidence": self.confidence,
         }
+        # Per-source contribution log, attached by the enricher.
+        if hasattr(self, "_source_log"):
+            d["source_log"] = self._source_log  # type: ignore[attr-defined]
+        return d

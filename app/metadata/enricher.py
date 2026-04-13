@@ -149,14 +149,19 @@ class MetadataEnricher:
             sources = [mam_src] + [s for s in sources if s.name != "mam"]
 
         merged: Optional[MetaRecord] = None
+        source_log: list[dict] = []  # per-source contributions
+        have_exact_id = False  # MAM exact-ID gives us the match; keep querying for supplemental data
+
         for src in sources:
             result = await self._safe_search(src, title=title, author=author)
             if result is None:
+                source_log.append({"source": src.name, "confidence": None, "status": "no_result"})
                 continue
             # Exact-ID lookups (like MAM with torrent_id) already set
             # confidence=1.0. Only re-score with Jaccard when the source
             # did a fuzzy text search (confidence not already pinned).
-            if result.confidence < 1.0:
+            is_exact = result.confidence >= 1.0
+            if not is_exact:
                 result.confidence = score_match(
                     record_title=result.title or title,
                     record_authors=result.authors or [],
@@ -167,9 +172,22 @@ class MetadataEnricher:
                 "enricher: %s → confidence %.2f (title=%r)",
                 src.name, result.confidence, result.title,
             )
+            # Track what each source contributed.
+            source_log.append({
+                "source": src.name,
+                "confidence": round(result.confidence, 2),
+                "status": "matched",
+                "cover_url": result.cover_url or None,
+            })
             merged = _merge_records(merged, result)
-            if result.confidence >= self.config.accept_confidence:
-                break  # good enough; don't hit more providers
+            if is_exact:
+                have_exact_id = True
+                continue  # we have the match; keep querying for covers/pages/etc.
+            if result.confidence >= self.config.accept_confidence and not have_exact_id:
+                break  # good enough from a fuzzy source; stop here
+
+        if merged is not None:
+            merged._source_log = source_log  # type: ignore[attr-defined]
         return merged
 
     async def _safe_search(
