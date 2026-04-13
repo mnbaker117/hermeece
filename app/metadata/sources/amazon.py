@@ -2,25 +2,23 @@
 Amazon metadata source — web scraping.
 
 Scrapes Amazon's Kindle Store search + product detail pages. No API
-key required — uses UA spoofing to get through basic bot detection.
+key required — uses realistic browser headers to pass bot detection.
 
 Two-pass flow:
-  1. Search: `amazon.com/s?k={title}+{author}&i=digital-text` → find
-     the ASIN of the best matching result by title similarity.
-  2. Detail: `amazon.com/dp/{ASIN}` → extract rich metadata from the
-     RPI carousel cards (series, page count, pub date, language) +
-     detail bullets (ASIN, ISBN-13) + description + cover image.
+  1. Search: amazon.com/s with explicit book-store parameters
+  2. Detail: amazon.com/dp/{ASIN} for rich metadata
 
-The RPI carousel cards (`#rpi-attribute-*`) are the cleanest and
-most stable selectors on Amazon product pages — more structured than
-the legacy detail-bullets list and less likely to break across
-redesigns.
+Based on analysis of CWA's proven Amazon scraper, this implementation:
+  - Uses plain requests.Session (NOT cloudscraper — less fingerprint)
+  - Includes Accept-Encoding header (critical for bot detection)
+  - Uses explicit search params (unfiltered, sort, search-alias)
+  - Extracts high-res covers from script JSON, not img elements
+  - Filters pre-order pages
+  - Uses data-feature-name selectors where possible (more stable)
 
-Amazon aggressively blocks automated requests. This source uses
-cloudscraper like Kobo to handle Cloudflare challenges. If Amazon
-starts returning CAPTCHAs consistently, this source degrades
-gracefully (returns None) and the enricher falls through to the
-next provider.
+Amazon aggressively blocks automated requests. If Amazon returns
+CAPTCHAs or 503s consistently, this source degrades gracefully
+(returns None) and the enricher falls through to the next provider.
 """
 from __future__ import annotations
 
@@ -31,6 +29,8 @@ import time
 from datetime import datetime
 from typing import Optional
 
+import requests
+
 from app.metadata.record import MetaRecord
 from app.metadata.sources.base import MetaSource
 
@@ -40,50 +40,40 @@ _SEARCH_URL = "https://www.amazon.com/s"
 _PRODUCT_URL = "https://www.amazon.com/dp"
 
 _UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) "
-    "Gecko/20100101 Firefox/128.0"
+    "Mozilla/5.0 (X11; Linux x86_64; rv:143.0) "
+    "Gecko/20100101 Firefox/143.0"
 )
 
+_HEADERS = {
+    "User-Agent": _UA,
+    "Accept": "*/*",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
-def _create_scraper():
-    try:
-        import cloudscraper
-        return cloudscraper.create_scraper(
-            browser={"custom": _UA},
-        )
-    except ImportError:
-        _log.warning("cloudscraper not installed — Amazon source disabled")
-        return None
+# High-res cover extraction from script JSON blocks.
+_HIRES_RE = re.compile(r'"hiRes"\s*:\s*"([^"]+)"')
 
 
 class AmazonSource(MetaSource):
     name = "amazon"
-    default_timeout = 30.0
+    default_timeout = 15.0
 
-    def __init__(self, *, rate_limit: float = 2.0):
+    def __init__(self, *, rate_limit: float = 1.5):
         super().__init__(rate_limit=rate_limit)
-        self._session = None
+        self._session: Optional[requests.Session] = None
 
-    def _get_session(self):
+    def _get_session(self) -> requests.Session:
         if self._session is None:
-            self._session = _create_scraper()
+            self._session = requests.Session()
+            self._session.headers.update(_HEADERS)
         return self._session
 
     def _fetch_sync(self, url: str, params: dict = None) -> Optional[str]:
         session = self._get_session()
-        if not session:
-            return None
         time.sleep(self.rate_limit)
         try:
-            headers = {
-                "User-Agent": _UA,
-                "Accept": "text/html,application/xhtml+xml",
-                "Accept-Language": "en-US,en;q=0.9",
-            }
-            r = session.get(
-                url, params=params, headers=headers,
-                timeout=self.default_timeout,
-            )
+            r = session.get(url, params=params, timeout=self.default_timeout)
             if r.status_code == 200:
                 return r.text
             _log.info("amazon: HTTP %d for %s", r.status_code, url)
@@ -101,11 +91,16 @@ class AmazonSource(MetaSource):
         if not title:
             return None
 
-        # Search the Kindle Store for the book.
         query = f"{title} {author}".strip()
         search_html = await self._fetch(
             _SEARCH_URL,
-            params={"k": query, "i": "digital-text"},
+            params={
+                "field-keywords": query,
+                "i": "digital-text",
+                "search-alias": "stripbooks",
+                "unfiltered": "1",
+                "sort": "relevanceexprank",
+            },
         )
         if not search_html:
             return None
@@ -114,46 +109,90 @@ class AmazonSource(MetaSource):
         from app.metadata.scoring import score_match
 
         soup = BeautifulSoup(search_html, "lxml")
-        results = soup.select("[data-asin]")
 
-        best_asin = None
-        best_score = 0.0
-        for r in results:
-            asin = r.get("data-asin", "").strip()
-            if not asin:
-                continue
-            title_el = r.select_one("h2 a span, .a-text-normal")
-            if not title_el:
-                continue
-            result_title = title_el.get_text(strip=True)
-            sc = score_match(
-                record_title=result_title,
-                record_authors=[],
-                search_title=title,
-                search_authors=author,
-            )
-            if sc > best_score:
-                best_asin = asin
-                best_score = sc
+        # Extract product links from search results — deduplicate by URL.
+        links: list[str] = []
+        for container in soup.find_all(attrs={"data-component-type": "s-search-results"}):
+            for a in container.find_all("a", href=True):
+                href = a["href"]
+                if "/dp/" not in href:
+                    continue
+                base = href.split("?")[0]
+                if base not in links:
+                    links.append(base)
 
-        if not best_asin or best_score < 0.25:
+        # Fallback: try data-asin attribute extraction.
+        if not links:
+            for r in soup.select("[data-asin]"):
+                asin = r.get("data-asin", "").strip()
+                if asin:
+                    url = f"/dp/{asin}"
+                    if url not in links:
+                        links.append(url)
+
+        if not links:
             return None
 
-        # Fetch the product detail page.
-        detail_html = await self._fetch(f"{_PRODUCT_URL}/{best_asin}")
+        # Score and pick best from first 3 links.
+        best_url = None
+        best_score = 0.0
+        for link in links[:3]:
+            # Extract title from the search result if possible.
+            asin = _extract_asin(link)
+            if not asin:
+                continue
+            # Try to find the title text near this link.
+            for a in soup.find_all("a", href=lambda h: h and asin in h):
+                title_el = a.select_one("span")
+                if title_el:
+                    result_title = title_el.get_text(strip=True)
+                    sc = score_match(
+                        record_title=result_title,
+                        record_authors=[],
+                        search_title=title,
+                        search_authors=author,
+                    )
+                    if sc > best_score:
+                        best_score = sc
+                        best_url = link
+                    break
+
+        # If scoring didn't work, just use the first link.
+        if not best_url and links:
+            best_url = links[0]
+            best_score = 0.3
+
+        if not best_url or best_score < 0.2:
+            return None
+
+        asin = _extract_asin(best_url)
+        if not asin:
+            return None
+
+        detail_html = await self._fetch(f"{_PRODUCT_URL}/{asin}")
         if not detail_html:
             return None
 
-        return _parse_detail_page(detail_html, best_asin)
+        return _parse_detail_page(detail_html, asin)
 
     async def close(self) -> None:
         self._session = None
         await super().close()
 
 
+def _extract_asin(url: str) -> Optional[str]:
+    m = re.search(r"/dp/([A-Z0-9]{10})", url)
+    return m.group(1) if m else None
+
+
 def _parse_detail_page(html_text: str, asin: str) -> Optional[MetaRecord]:
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html_text, "lxml")
+
+    # Pre-order check — reject if this is a pre-order page.
+    if soup.find("input", attrs={"name": "submit.preorder"}):
+        _log.debug("amazon: skipping pre-order page for %s", asin)
+        return None
 
     # Title.
     title_el = soup.select_one("#productTitle")
@@ -161,7 +200,7 @@ def _parse_detail_page(html_text: str, asin: str) -> Optional[MetaRecord]:
     if not title:
         return None
 
-    # RPI carousel cards — the cleanest selectors on the page.
+    # RPI carousel cards — structured metadata.
     rpi = {}
     for card in soup.select("[id^='rpi-attribute-']"):
         card_id = card.get("id", "")
@@ -189,6 +228,19 @@ def _parse_detail_page(html_text: str, asin: str) -> Optional[MetaRecord]:
             except ValueError:
                 pass
 
+    # Also try series from data-feature-name widget (CWA pattern).
+    if not series_name:
+        series_widget = soup.find(attrs={"data-feature-name": "seriesBulletWidget"})
+        if series_widget:
+            text = series_widget.get_text(" ", strip=True)
+            m = re.search(r"Book\s+(\d+)(?:\s+of\s+\d+)?:\s*(.+)", text)
+            if m:
+                try:
+                    series_index = float(m.group(1))
+                except ValueError:
+                    pass
+                series_name = m.group(2).strip()
+
     # Strip series from title if present.
     if series_name and series_name in title:
         title = re.sub(
@@ -215,7 +267,7 @@ def _parse_detail_page(html_text: str, asin: str) -> Optional[MetaRecord]:
     if lang_card.get("value"):
         language = lang_card["value"]
 
-    # ISBN-13 + ASIN from detail bullets.
+    # ISBN-13 + fallback pub date from detail bullets.
     isbn = None
     for li in soup.select(
         "#detailBulletsWrapper_feature_div li, "
@@ -228,34 +280,52 @@ def _parse_detail_page(html_text: str, asin: str) -> Optional[MetaRecord]:
             val = val_span.get_text(strip=True) if val_span else ""
             if "ISBN-13" in label and val:
                 isbn = val.replace("-", "")
-            # Also try pub date from bullets as fallback.
             if "Publication date" in label and val and not pub_date:
                 pub_date = _parse_amazon_date(val)
 
-    # Description.
+    # Description — prefer data-feature-name selector (more stable).
     description = None
-    desc_el = soup.select_one(
-        "#bookDescription_feature_div .a-expander-content"
-    )
+    desc_el = soup.find("div", attrs={"data-feature-name": "bookDescription"})
     if desc_el:
-        description = desc_el.get_text(strip=True)[:2000]
+        # Drill into nested divs for the actual text.
+        inner = desc_el.find("div")
+        if inner:
+            inner2 = inner.find("div")
+            if inner2:
+                description = inner2.get_text(strip=True)[:2000]
+    if not description:
+        desc_el = soup.select_one(
+            "#bookDescription_feature_div .a-expander-content"
+        )
+        if desc_el:
+            description = desc_el.get_text(strip=True)[:2000]
 
-    # Cover image.
+    # Cover image — prefer high-res from script JSON (CWA pattern).
     cover_url = None
-    for sel in ("#imgBlkFront", "#ebooksImgBlkFront", "#landingImage"):
-        img = soup.select_one(sel)
+    for script in soup.find_all("script"):
+        text = script.string or ""
+        m = _HIRES_RE.search(text)
+        if m:
+            cover_url = m.group(1)
+            break
+    # Fallback: img element with dynamic-image class.
+    if not cover_url:
+        img = soup.select_one("img.a-dynamic-image")
         if img:
             cover_url = img.get("src") or ""
-            if cover_url:
-                # Upgrade to larger image: strip size constraints.
-                cover_url = re.sub(
-                    r"\._[A-Z][A-Z0-9_]+_\.", ".", cover_url
-                )
-                break
+    # Fallback: legacy element IDs.
+    if not cover_url:
+        for sel in ("#imgBlkFront", "#ebooksImgBlkFront", "#landingImage"):
+            img = soup.select_one(sel)
+            if img:
+                cover_url = img.get("src") or ""
+                if cover_url:
+                    cover_url = re.sub(r"\._[A-Z][A-Z0-9_]+_\.", ".", cover_url)
+                    break
 
     return MetaRecord(
         title=title,
-        authors=[],  # Amazon search doesn't reliably surface in a parseable way
+        authors=[],
         series=series_name,
         series_index=series_index,
         description=description,
