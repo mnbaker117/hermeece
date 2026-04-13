@@ -1,21 +1,25 @@
 """
-Migration wizard endpoints — v2 with correct path matching.
+Migration wizard endpoints — v3 with server-side background processing.
 
-    GET  /api/v1/migration/preview   — scan + compute targets
-    POST /api/v1/migration/execute   — batch migrate with progress
-    POST /api/v1/migration/resume-all — resume all stopped torrents
+    GET  /api/v1/migration/preview       — scan + compute targets
+    POST /api/v1/migration/start         — kick off background migration job
+    GET  /api/v1/migration/status        — poll progress of running job
+    POST /api/v1/migration/cancel        — abort a running migration
+    POST /api/v1/migration/resume-all    — resume all stopped torrents
+    GET  /api/v1/migration/empty-folders — list empty subdirectories
+    POST /api/v1/migration/cleanup       — delete selected empty folders
 
-The migration wizard moves existing downloads into the configured
-folder structure (monthly [YYYY-MM], yearly [YYYY], or flat).
+The migration runs entirely server-side so the user can navigate away
+from the page (or close the browser) without losing progress. The
+frontend polls /status every few seconds to update the progress bar.
+
+After migration + resume, the cleanup step scans the download root for
+empty subdirectories left behind (e.g. [2026-03-15], [Random Seeding])
+and offers to delete them.
 
 Path matching logic: a torrent is "already correct" ONLY if its
 save_path ends with a folder that EXACTLY matches the target
-pattern. Everything else — date folders like [2026-03-15], named
-folders like [Random Seeding], the bare root path — is fair game
-for migration.
-
-Batch size is capped at 50 per request to avoid HTTP timeouts.
-The frontend paginates through the full list in chunks.
+pattern. Everything else is fair game for migration.
 """
 from __future__ import annotations
 
@@ -48,11 +52,13 @@ _YEARLY_RX = re.compile(r"^.*\[(\d{4})\]$")          # [2026]
 BATCH_LIMIT = 50
 
 
+# ─── Models ──────────────────────────────────────────────────
+
 class PreviewItem(BaseModel):
     hash: str
     name: str
     current_path: str
-    current_folder: str       # last path component
+    current_folder: str
     target_folder: Optional[str]
     target_path: Optional[str]
     needs_move: bool
@@ -66,26 +72,23 @@ class PreviewResponse(BaseModel):
     total: int
 
 
-class ExecuteRequest(BaseModel):
-    hashes: list[str] = Field(..., min_length=1, max_length=50)
+class StartRequest(BaseModel):
+    hashes: list[str] = Field(..., min_length=1)
     dry_run: bool = False
 
 
-class ExecuteResultItem(BaseModel):
-    hash: str
-    name: str
-    ok: bool
-    error: Optional[str] = None
-    action: Optional[str] = None
-
-
-class ExecuteResponse(BaseModel):
+class StatusResponse(BaseModel):
+    running: bool
+    done: int
     total: int
     succeeded: int
     failed: int
-    dry_run: bool = False
-    results: list[ExecuteResultItem]
+    finished: bool
+    dry_run: bool
+    results: list[dict]
 
+
+# ─── Helpers ─────────────────────────────────────────────────
 
 def _target_folder_for_mtime(ts: float, structure: str) -> str:
     """Compute the target folder name based on the folder structure setting."""
@@ -93,28 +96,18 @@ def _target_folder_for_mtime(ts: float, structure: str) -> str:
     if structure == "yearly":
         return f"[{dt.strftime('%Y')}]"
     elif structure == "flat":
-        return ""  # no subfolder
+        return ""
     else:  # monthly (default)
         return f"[{dt.strftime('%Y-%m')}]"
 
 
 def _is_already_correct(save_path: str, target_folder: str, structure: str) -> bool:
-    """Check if the torrent's save_path already ends with the exact target folder.
-
-    Only returns True for EXACT matches of the configured folder structure.
-    Date folders like [2026-03-15], named folders like [Random Seeding],
-    and the bare root path all return False.
-    """
+    """Check if the torrent's save_path already ends with the exact target folder."""
     if structure == "flat":
-        # For flat, the torrent should be in the root download path
-        # (no subfolder). Check that there's no bracket folder at the end.
         last = save_path.rstrip("/").rsplit("/", 1)[-1]
         return not last.startswith("[")
-
     if not target_folder:
         return False
-
-    # The save_path should end with exactly the target folder.
     normalized = save_path.rstrip("/")
     return normalized.endswith(f"/{target_folder}") or normalized == target_folder
 
@@ -150,8 +143,6 @@ def _find_primary_mtime(local_dir: Path) -> Optional[float]:
         pass
     if best_mtime is not None:
         return best_mtime
-    # Last resort: directory's own mtime (when the dir exists but we
-    # couldn't iterate its contents — e.g. permission denied on children).
     try:
         return local_dir.stat().st_mtime
     except OSError:
@@ -162,6 +153,8 @@ def _last_folder(path: str) -> str:
     """Extract the last path component."""
     return path.rstrip("/").rsplit("/", 1)[-1] if path else ""
 
+
+# ─── Preview ─────────────────────────────────────────────────
 
 @router.get("/preview", response_model=PreviewResponse)
 async def preview() -> PreviewResponse:
@@ -223,65 +216,119 @@ async def preview() -> PreviewResponse:
     )
 
 
-@router.post("/execute", response_model=ExecuteResponse)
-async def execute(body: ExecuteRequest) -> ExecuteResponse:
+# ─── Background migration job ───────────────────────────────
+
+@router.post("/start")
+async def start_migration(body: StartRequest):
+    """Kick off a background migration job. Returns immediately."""
     if state.dispatcher is None:
         raise HTTPException(503, "dispatcher not initialized")
+    if state._migration_task is not None and not state._migration_task.done():
+        raise HTTPException(409, "migration already running")
 
+    # Reset status.
+    state._migration_status = {
+        "running": True,
+        "done": 0,
+        "total": len(body.hashes),
+        "succeeded": 0,
+        "failed": 0,
+        "results": [],
+        "finished": False,
+        "dry_run": body.dry_run,
+    }
+
+    state._migration_task = asyncio.create_task(
+        _run_migration(body.hashes, body.dry_run),
+        name="migration-job",
+    )
+    return {"ok": True, "total": len(body.hashes)}
+
+
+@router.get("/status", response_model=StatusResponse)
+async def migration_status():
+    """Poll the current migration job's progress."""
+    s = state._migration_status
+    return StatusResponse(
+        running=s["running"],
+        done=s["done"],
+        total=s["total"],
+        succeeded=s["succeeded"],
+        failed=s["failed"],
+        finished=s["finished"],
+        dry_run=s["dry_run"],
+        results=s["results"],
+    )
+
+
+@router.post("/cancel")
+async def cancel_migration():
+    """Cancel a running migration. Already-processed items stay moved."""
+    if state._migration_task is None or state._migration_task.done():
+        return {"ok": True, "was_running": False}
+    state._migration_task.cancel()
+    try:
+        await state._migration_task
+    except asyncio.CancelledError:
+        pass
+    state._migration_status["running"] = False
+    state._migration_status["finished"] = True
+    return {"ok": True, "was_running": True}
+
+
+async def _run_migration(hashes: list[str], dry_run: bool) -> None:
+    """Background coroutine that processes all hashes sequentially."""
     deps = state.dispatcher
     settings = load_settings()
     qbit_download_path = settings.get("qbit_download_path", "") or ""
     structure = settings.get("download_folder_structure", "monthly") or "monthly"
-    if not qbit_download_path:
-        raise HTTPException(400, "qbit_download_path not configured")
-
     qbit: QbitClient = deps.qbit  # type: ignore
+    status = state._migration_status
 
-    results: list[ExecuteResultItem] = []
-    succeeded = 0
-    failed = 0
+    for idx, h in enumerate(hashes):
+        if asyncio.current_task().cancelled():
+            break
 
-    for h in body.hashes:
-        # Re-fetch each torrent individually so we always have its
-        # current save_path — critical when processing a batch where
-        # earlier items may have changed qBit state.
+        # Re-fetch each torrent individually for fresh save_path.
         t = await deps.qbit.get_torrent(h)
         if t is None:
-            results.append(ExecuteResultItem(hash=h, name="?", ok=False, error="not found"))
-            failed += 1
+            status["results"].append({"hash": h, "name": "?", "ok": False, "error": "not found", "action": None})
+            status["failed"] += 1
+            status["done"] = idx + 1
             continue
 
         local_save = translate_path(
             t.save_path, deps.qbit_path_prefix, deps.local_path_prefix
         )
         local_dir = Path(local_save) / t.name if t.name else Path(local_save)
-
-        # Only inspect the specific torrent directory — never the parent.
         mtime = _find_primary_mtime(local_dir)
+
         if mtime is None:
-            results.append(ExecuteResultItem(hash=h, name=t.name, ok=False, error="could not determine mtime"))
-            failed += 1
+            status["results"].append({"hash": h, "name": t.name, "ok": False, "error": "could not determine mtime", "action": None})
+            status["failed"] += 1
+            status["done"] = idx + 1
             continue
 
         target_folder = _target_folder_for_mtime(mtime, structure)
         target_qbit = f"{qbit_download_path}/{target_folder}" if target_folder else qbit_download_path
 
         if _is_already_correct(t.save_path, target_folder, structure):
-            results.append(ExecuteResultItem(hash=h, name=t.name, ok=True, action="already correct"))
-            succeeded += 1
+            status["results"].append({"hash": h, "name": t.name, "ok": True, "error": None, "action": "already correct"})
+            status["succeeded"] += 1
+            status["done"] = idx + 1
             continue
 
-        action_desc = f"{_last_folder(t.save_path)} → {target_folder or 'root'}"
+        action_desc = f"{_last_folder(t.save_path)} -> {target_folder or 'root'}"
 
-        if body.dry_run:
-            local_target = translate_path(target_qbit, deps.qbit_path_prefix, deps.local_path_prefix)
+        if dry_run:
             src_exists = local_dir.exists() or Path(local_save).exists()
-            results.append(ExecuteResultItem(
-                hash=h, name=t.name, ok=True,
-                action=f"DRY RUN: would move {action_desc}",
-                error=None if src_exists else "WARNING: source not found on disk",
-            ))
-            succeeded += 1
+            status["results"].append({
+                "hash": h, "name": t.name, "ok": True,
+                "action": f"DRY RUN: would move {action_desc}",
+                "error": None if src_exists else "WARNING: source not found on disk",
+            })
+            status["succeeded"] += 1
+            status["done"] = idx + 1
             continue
 
         # Pre-create the target folder.
@@ -290,23 +337,29 @@ async def execute(body: ExecuteRequest) -> ExecuteResponse:
 
         try:
             ok = await _migrate_one(qbit, h, target_qbit)
+        except asyncio.CancelledError:
+            raise
         except Exception:
             _log.exception("migration failed for %s", h)
             ok = False
 
         if ok:
-            results.append(ExecuteResultItem(hash=h, name=t.name, ok=True, action=action_desc))
-            succeeded += 1
+            status["results"].append({"hash": h, "name": t.name, "ok": True, "error": None, "action": action_desc})
+            status["succeeded"] += 1
             _log.info("migrated %s: %s", t.name, action_desc)
         else:
-            results.append(ExecuteResultItem(hash=h, name=t.name, ok=False, error="move/recheck failed", action=action_desc))
-            failed += 1
+            status["results"].append({"hash": h, "name": t.name, "ok": False, "error": "move/recheck failed", "action": action_desc})
+            status["failed"] += 1
 
-    return ExecuteResponse(
-        total=len(body.hashes), succeeded=succeeded, failed=failed,
-        dry_run=body.dry_run, results=results,
-    )
+        status["done"] = idx + 1
 
+    status["running"] = False
+    status["finished"] = True
+    _log.info("migration job finished: %d succeeded, %d failed out of %d",
+              status["succeeded"], status["failed"], status["total"])
+
+
+# ─── Resume all ──────────────────────────────────────────────
 
 @router.post("/resume-all")
 async def resume_all():
@@ -325,8 +378,125 @@ async def resume_all():
     return {"ok": True, "resumed": resumed, "total": len(torrents)}
 
 
+# ─── Empty folder cleanup ────────────────────────────────────
+
+class EmptyFolderItem(BaseModel):
+    name: str
+    path: str
+
+
+class EmptyFoldersResponse(BaseModel):
+    folders: list[EmptyFolderItem]
+    root: str
+
+
+class CleanupRequest(BaseModel):
+    folders: list[str] = Field(..., min_length=1)
+
+
+class CleanupResponse(BaseModel):
+    deleted: int
+    failed: int
+    errors: list[str]
+
+
+@router.get("/empty-folders", response_model=EmptyFoldersResponse)
+async def list_empty_folders():
+    """Scan the download root for completely empty subdirectories."""
+    if state.dispatcher is None:
+        raise HTTPException(503, "dispatcher not initialized")
+
+    deps = state.dispatcher
+    settings = load_settings()
+    qbit_download_path = settings.get("qbit_download_path", "") or ""
+    if not qbit_download_path:
+        raise HTTPException(400, "qbit_download_path not configured")
+
+    local_root = translate_path(
+        qbit_download_path, deps.qbit_path_prefix, deps.local_path_prefix
+    )
+    root_path = Path(local_root)
+    if not root_path.is_dir():
+        return EmptyFoldersResponse(folders=[], root=local_root)
+
+    empty: list[EmptyFolderItem] = []
+    try:
+        for child in sorted(root_path.iterdir()):
+            if not child.is_dir():
+                continue
+            # A folder is "empty" if it contains zero regular files
+            # (recursively). We don't count other empty subdirs.
+            has_files = False
+            try:
+                for f in child.rglob("*"):
+                    if f.is_file():
+                        has_files = True
+                        break
+            except OSError:
+                continue
+            if not has_files:
+                empty.append(EmptyFolderItem(
+                    name=child.name,
+                    path=str(child),
+                ))
+    except OSError:
+        _log.exception("failed to scan %s for empty folders", local_root)
+
+    return EmptyFoldersResponse(folders=empty, root=local_root)
+
+
+@router.post("/cleanup", response_model=CleanupResponse)
+async def cleanup_empty_folders(body: CleanupRequest):
+    """Delete the specified empty folders."""
+    if state.dispatcher is None:
+        raise HTTPException(503, "dispatcher not initialized")
+
+    deps = state.dispatcher
+    settings = load_settings()
+    qbit_download_path = settings.get("qbit_download_path", "") or ""
+    local_root = translate_path(
+        qbit_download_path, deps.qbit_path_prefix, deps.local_path_prefix
+    )
+
+    deleted = 0
+    fail = 0
+    errors: list[str] = []
+
+    for folder_path in body.folders:
+        p = Path(folder_path)
+        # Safety: only delete folders that are direct children of the
+        # download root to prevent path traversal.
+        try:
+            if p.parent != Path(local_root):
+                errors.append(f"{p.name}: not a direct child of download root")
+                fail += 1
+                continue
+            if not p.is_dir():
+                errors.append(f"{p.name}: not found or not a directory")
+                fail += 1
+                continue
+            # Verify still empty before deleting.
+            has_files = any(f.is_file() for f in p.rglob("*"))
+            if has_files:
+                errors.append(f"{p.name}: no longer empty, skipped")
+                fail += 1
+                continue
+            # rmtree to handle nested empty subdirs.
+            import shutil
+            shutil.rmtree(str(p))
+            deleted += 1
+            _log.info("cleaned up empty folder: %s", p)
+        except Exception as e:
+            errors.append(f"{p.name}: {e}")
+            fail += 1
+
+    return CleanupResponse(deleted=deleted, failed=fail, errors=errors)
+
+
+# ─── Single torrent move ────────────────────────────────────
+
 async def _migrate_one(qbit: QbitClient, torrent_hash: str, target_path: str) -> bool:
-    """Relocate one torrent: [pause if active] → setSavePath → verify → recheck → [resume].
+    """Relocate one torrent: [pause if active] -> setSavePath -> verify -> recheck -> [resume].
 
     After calling setSavePath we verify that qBit actually updated the
     torrent's save_path to the target. qBit v5's setSavePath can return

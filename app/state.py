@@ -140,6 +140,24 @@ _snatch_budget: Dict[str, Any] = {
 }
 
 
+# ─── Migration job state ────────────────────────────────────
+# Background migration runs server-side so the user can navigate
+# away from the page. The task processes all selected hashes in
+# batches, updating _migration_status as it goes. The frontend
+# polls GET /api/v1/migration/status to track progress.
+_migration_task: Optional[asyncio.Task] = None
+_migration_status: Dict[str, Any] = {
+    "running": False,
+    "done": 0,
+    "total": 0,
+    "succeeded": 0,
+    "failed": 0,
+    "results": [],       # list of {hash, name, ok, error, action}
+    "finished": False,
+    "dry_run": False,
+}
+
+
 # ─── Dispatcher singleton ────────────────────────────────────
 # Set by main.py's lifespan during startup. The inject router and
 # the IRC listener both read this attribute, so swapping in a test
