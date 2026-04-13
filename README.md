@@ -60,40 +60,50 @@ Sibling project to [AthenaScout](https://github.com/mnbaker117/AthenaScout). Ath
 ### Docker (recommended)
 
 ```bash
-# Clone the repo
-git clone https://github.com/mnbaker117/hermeece.git
-cd hermeece
-
-# Copy and edit the compose file
-cp docker-compose.example.yml docker-compose.yml
-# Edit docker-compose.yml — adjust volume mount paths for your system
-
-# Start the container
-docker compose up -d
-
-# Open the web UI
-open http://your-server:8788
+docker pull ghcr.io/mnbaker117/hermeece:latest
 ```
 
-On first boot:
-1. Create your admin account (setup wizard)
-2. Go to **Settings** → enter MAM credentials, download client connection, ntfy URL
-3. The IRC listener connects automatically and starts processing announces
+Copy and customize the compose file:
+
+```bash
+curl -O https://raw.githubusercontent.com/mnbaker117/hermeece/main/docker-compose.example.yml
+mv docker-compose.example.yml docker-compose.yml
+# Edit docker-compose.yml — adjust volume mount paths for your system
+docker compose up -d
+```
+
+Open `http://your-server:8788` in a browser.
+
+**First-boot setup:**
+1. Create your admin account (setup wizard appears automatically)
+2. Go to **Settings** and configure:
+   - **MAM**: IRC nick, account, password, and session cookie (from MAM → Preferences → Security)
+   - **Download Client**: qBittorrent/Transmission/Deluge/rTorrent URL + credentials
+   - **Notifications** (optional): ntfy URL and topic
+   - **API Keys** (optional): Hardcover API key for richer metadata
+3. The IRC listener connects and starts processing announces immediately
+
+All credentials are entered through the web UI and stored encrypted — never as environment variables.
 
 ### Unraid
 
-Add via Community Applications using the template URL, or manually add the container with:
+In the Unraid Docker tab, click **Add Container** and set:
 - **Repository:** `ghcr.io/mnbaker117/hermeece:latest`
-- **Port:** 8788
+- **Port:** 8788 → 8788
 
-### Development
+Add volume mappings for: App Data (`/app/data`), Downloads (`/downloads`), CWA Ingest (`/cwa-ingest`), Calibre Library (`/calibre`), Review Staging (`/review-staging`), Staging (`/staging`).
+
+See [DEPLOY.md](DEPLOY.md) for detailed Unraid setup instructions and first-boot walkthrough.
+
+### Build from source
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+git clone https://github.com/mnbaker117/hermeece.git
+cd hermeece
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 cd frontend && npm install && npm run build && cd ..
-pytest  # 625 tests
+pytest
 uvicorn app.main:app --reload --port 8788
 ```
 
@@ -131,4 +141,4 @@ No sensitive values should be set as environment variables in production.
 
 ## License
 
-Private — not yet open source.
+MIT
