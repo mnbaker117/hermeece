@@ -153,12 +153,16 @@ class MetadataEnricher:
             result = await self._safe_search(src, title=title, author=author)
             if result is None:
                 continue
-            result.confidence = score_match(
-                record_title=result.title or title,
-                record_authors=result.authors or [],
-                search_title=title,
-                search_authors=author,
-            )
+            # Exact-ID lookups (like MAM with torrent_id) already set
+            # confidence=1.0. Only re-score with Jaccard when the source
+            # did a fuzzy text search (confidence not already pinned).
+            if result.confidence < 1.0:
+                result.confidence = score_match(
+                    record_title=result.title or title,
+                    record_authors=result.authors or [],
+                    search_title=title,
+                    search_authors=author,
+                )
             _log.info(
                 "enricher: %s → confidence %.2f (title=%r)",
                 src.name, result.confidence, result.title,
