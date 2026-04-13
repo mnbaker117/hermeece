@@ -71,11 +71,12 @@ def _find_torrent_file(parent: Path, torrent_name: str) -> Optional[Path]:
 
     qBit's torrent name often differs from the filename:
       - "Down Below" → "Down Below by Scott Moon.epub"
-      - "Ascendant" → "Ascendant by M R Forbes.epub"
+      - "The Triangulum Fold" → "Nick Adams - [The Fold 8] - The Triangulum Fold.epub"
 
     Tries in order:
       1. Exact name with any book extension
-      2. Any file in the directory whose stem starts with the torrent name
+      2. Any file whose stem starts with the torrent name (prefix)
+      3. Any file whose stem contains the torrent name (substring)
     Returns the matched Path, or None to let the caller fall back.
     """
     if not parent.is_dir():
@@ -89,11 +90,28 @@ def _find_torrent_file(parent: Path, torrent_name: str) -> Optional[Path]:
         if candidate.exists():
             return candidate
 
+    # Collect book files once for prefix + substring passes.
+    book_files = [
+        f for f in parent.iterdir()
+        if f.is_file() and f.suffix.lower() in _BOOK_EXTS
+    ]
+
     # Try prefix match: file stem starts with the torrent name.
-    for f in parent.iterdir():
-        if f.is_file() and f.suffix.lower() in _BOOK_EXTS:
-            if f.stem.lower().startswith(name_lower):
-                return f
+    for f in book_files:
+        if f.stem.lower().startswith(name_lower):
+            return f
+
+    # Try substring match: torrent name appears anywhere in the stem.
+    # If multiple match, prefer the shortest filename (closest match).
+    substring_matches = [
+        f for f in book_files
+        if name_lower in f.stem.lower()
+    ]
+    if len(substring_matches) == 1:
+        return substring_matches[0]
+    if len(substring_matches) > 1:
+        # Shortest name is most likely the right file.
+        return min(substring_matches, key=lambda f: len(f.name))
 
     return None
 

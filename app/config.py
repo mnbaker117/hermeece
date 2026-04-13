@@ -226,6 +226,9 @@ DEFAULT_SETTINGS = {
 
     # ── Calibre integration ─────────────────────────────────
     "calibre_library_path": "",
+    # Web UI URLs for dashboard quick-launch buttons.
+    "cwa_web_url": "",
+    "calibre_web_url": "",
     # Staging directory where files land before metadata review + calibredb add.
     "staging_path": "",
     # Mandatory manual-review queue. When enabled, every downloaded

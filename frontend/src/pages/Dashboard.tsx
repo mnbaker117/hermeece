@@ -23,6 +23,7 @@ interface MamStatusResponse {
 }
 interface AuthorOverviewResponse { counts: Record<string, number>; }
 interface DataCounts { [key: string]: number; }
+interface SettingsResponse { [key: string]: unknown; }
 interface BudgetEntry {
   grab_id: number | null; torrent_name: string; author_blob: string;
   seeding_seconds: number; remaining_seconds: number; source: string;
@@ -41,9 +42,10 @@ const _cache: {
   authors: AuthorOverviewResponse | null; counts: DataCounts | null;
   recentGrabs: { torrent_name: string; author_blob: string; grabbed_at: string }[];
   budget: BudgetResponse | null;
+  settings: SettingsResponse | null;
 } = {
   reviewCount: null, tentativeCount: null, health: null, mam: null,
-  authors: null, counts: null, recentGrabs: [], budget: null,
+  authors: null, counts: null, recentGrabs: [], budget: null, settings: null,
 };
 
 const POLL_INTERVAL = 30;
@@ -58,6 +60,7 @@ export default function Dashboard({ onNav }: DashboardProps) {
   const [counts, setCounts] = useState<DataCounts | null>(_cache.counts);
   const [recentGrabs, setRecentGrabs] = useState(_cache.recentGrabs);
   const [budget, setBudget] = useState<BudgetResponse | null>(_cache.budget);
+  const [settings, setSettings] = useState<SettingsResponse | null>(_cache.settings);
   const [error, setError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(POLL_INTERVAL);
   const [lastPoll, setLastPoll] = useState<Date | null>(null);
@@ -66,7 +69,7 @@ export default function Dashboard({ onNav }: DashboardProps) {
     let cancelled = false;
     const refresh = async () => {
       try {
-        const [review, tentative, h, mamS, auth, cnt, recent, budgetR] = await Promise.all([
+        const [review, tentative, h, mamS, auth, cnt, recent, budgetR, settingsR] = await Promise.all([
           api.get<ReviewListResponse>("/v1/review"),
           api.get<TentativeListResponse>("/v1/tentative"),
           api.get<HealthResponse>("/health"),
@@ -75,14 +78,15 @@ export default function Dashboard({ onNav }: DashboardProps) {
           api.get<DataCounts>("/v1/data/counts").catch(() => null),
           api.get<{ grabs: { torrent_name: string; author_blob: string; grabbed_at: string }[] }>("/v1/grabs/recent").catch(() => ({ grabs: [] })),
           api.get<BudgetResponse>("/v1/grabs/budget").catch(() => null),
+          api.get<SettingsResponse>("/v1/settings").catch(() => null),
         ]);
         if (cancelled) return;
         setReviewCount(review.pending_count);
         setTentativeCount(tentative.items.length);
         setHealth(h); setMam(mamS); setAuthors(auth); setCounts(cnt);
         if (recent) setRecentGrabs(recent.grabs);
-        // Only update budget if the fetch succeeded (don't null out cache).
         if (budgetR) setBudget(budgetR);
+        if (settingsR) setSettings(settingsR);
         setError(null);
         // Update module-level cache.
         _cache.reviewCount = review.pending_count;
@@ -90,6 +94,7 @@ export default function Dashboard({ onNav }: DashboardProps) {
         _cache.health = h; _cache.mam = mamS; _cache.authors = auth; _cache.counts = cnt;
         if (recent) _cache.recentGrabs = recent.grabs;
         if (budgetR) _cache.budget = budgetR;
+        if (settingsR) _cache.settings = settingsR;
         // Reset countdown after successful poll.
         setCountdown(POLL_INTERVAL);
         setLastPoll(new Date());
@@ -283,6 +288,16 @@ export default function Dashboard({ onNav }: DashboardProps) {
             <Btn onClick={() => onNav("delayed")}>
               ⏳ Delayed
             </Btn>
+            {settings?.cwa_web_url && (
+              <Btn onClick={() => window.open(String(settings.cwa_web_url), "_blank")}>
+                📕 CWA
+              </Btn>
+            )}
+            {settings?.calibre_web_url && (
+              <Btn onClick={() => window.open(String(settings.calibre_web_url), "_blank")}>
+                📗 Calibre
+              </Btn>
+            )}
           </div>
         </div>
 
