@@ -60,6 +60,7 @@ export default function Dashboard({ onNav }: DashboardProps) {
   const [budget, setBudget] = useState<BudgetResponse | null>(_cache.budget);
   const [error, setError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(POLL_INTERVAL);
+  const [lastPoll, setLastPoll] = useState<Date | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,16 +81,18 @@ export default function Dashboard({ onNav }: DashboardProps) {
         setTentativeCount(tentative.items.length);
         setHealth(h); setMam(mamS); setAuthors(auth); setCounts(cnt);
         if (recent) setRecentGrabs(recent.grabs);
-        setBudget(budgetR);
+        // Only update budget if the fetch succeeded (don't null out cache).
+        if (budgetR) setBudget(budgetR);
         setError(null);
         // Update module-level cache.
         _cache.reviewCount = review.pending_count;
         _cache.tentativeCount = tentative.items.length;
         _cache.health = h; _cache.mam = mamS; _cache.authors = auth; _cache.counts = cnt;
         if (recent) _cache.recentGrabs = recent.grabs;
-        _cache.budget = budgetR;
+        if (budgetR) _cache.budget = budgetR;
         // Reset countdown after successful poll.
         setCountdown(POLL_INTERVAL);
+        setLastPoll(new Date());
       } catch (e) { if (!cancelled) setError(String(e)); }
     };
     refresh();
@@ -204,6 +207,11 @@ export default function Dashboard({ onNav }: DashboardProps) {
               {budget.next_release_seconds !== null && (
                 <div style={{ fontSize: 12, color: t.accent, marginTop: 6 }}>
                   Next release in {fmtDuration(budget.next_release_seconds)}
+                </div>
+              )}
+              {lastPoll && (
+                <div style={{ fontSize: 10, color: t.textDim, marginTop: 4, opacity: 0.5 }}>
+                  Polled {lastPoll.toLocaleTimeString()}
                 </div>
               )}
             </div>
