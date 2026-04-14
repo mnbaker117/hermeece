@@ -156,6 +156,24 @@ async def create_grab(
     return cursor.lastrowid or 0
 
 
+async def set_torrent_name(
+    db: aiosqlite.Connection, grab_id: int, torrent_name: str,
+) -> None:
+    """Overwrite the human-readable torrent name on a grab row.
+
+    Used by the review-queue edit flow when the user corrects a
+    bad title (e.g. the `manual_inject_<id>` placeholder left behind
+    by pre-v1.1.4 AthenaScout sends). The new value flows into the
+    dashboard's Snatch Budget widget, the Recent Activity feed,
+    and anywhere else that renders `grabs.torrent_name`.
+    """
+    await db.execute(
+        "UPDATE grabs SET torrent_name = ? WHERE id = ?",
+        (torrent_name, grab_id),
+    )
+    await db.commit()
+
+
 async def set_state(
     db: aiosqlite.Connection,
     grab_id: int,

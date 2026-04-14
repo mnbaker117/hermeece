@@ -7,6 +7,43 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [1.2.0] — 2026-04-14
+
+Operator-tooling release. Two interlocking editors — one in the
+Review queue, one in the DB browser — so the user can fix bad
+metadata or surgically repair a bad row without SSHing into the
+container.
+
+### Added
+
+- **Review-queue edit workflow.** The Review page's existing Edit
+  button now also offers **Save edits** (persist the metadata
+  changes without approving yet) and **Re-enrich** (apply pending
+  edits, then rerun the metadata scraper chain against the new
+  title + author and replace `metadata.enriched` with the fresh
+  result). Title edits propagate into `grabs.torrent_name` so the
+  Snatch Budget widget, Recent Activity feed, and review queue
+  label all reflect the correction. Direct response to the stuck
+  `manual_inject_1024455` row — edit → re-enrich → approve
+  replaces the "reject + resend" workaround.
+  - `POST /api/v1/review/{id}/save` — metadata-only edit
+  - `POST /api/v1/review/{id}/re-enrich` — save + rerun enricher
+  - `grabs.set_torrent_name()` storage helper
+- **Database browser writes (plan item 4.3 completion).** The
+  read-only MVP from v1.1 gains click-to-edit cells, a sticky
+  "N pending changes · Commit / Revert" tray, and a per-row
+  delete action.
+  - `POST /api/v1/db/table/{name}/update` — batch cell updates,
+    validated against `PRAGMA table_info` before any write commits
+  - `POST /api/v1/db/table/{name}/add` — insert new row
+  - `DELETE /api/v1/db/table/{name}/row/{id}` — delete by PK
+  - Writes inherit the same `_TABLES` whitelist as the read
+    endpoints, so the editor can never reach `sqlite_master` or
+    anything outside the expected operational tables. FK-constraint
+    violations on delete surface as a readable 409 ("delete or
+    reassign the dependent rows first") instead of the raw
+    sqlite3 error.
+
 ## [1.1.4] — 2026-04-14
 
 ### Fixed

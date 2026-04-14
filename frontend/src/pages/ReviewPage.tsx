@@ -98,6 +98,31 @@ export default function ReviewPage() {
     }
   }
 
+  async function saveEdits(id: number, metadata: Record<string, unknown>) {
+    setBusyId(id);
+    try {
+      await api.post(`/v1/review/${id}/save`, { metadata });
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function reEnrich(id: number, metadata: Record<string, unknown>) {
+    setBusyId(id);
+    setError(null);
+    try {
+      await api.post(`/v1/review/${id}/re-enrich`, { metadata });
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function reject(id: number) {
     setBusyId(id);
     try {
@@ -161,6 +186,8 @@ export default function ReviewPage() {
               item={item}
               busy={busyId === item.id}
               onApprove={(meta) => approve(item.id, meta)}
+              onSave={(meta) => saveEdits(item.id, meta)}
+              onReEnrich={(meta) => reEnrich(item.id, meta)}
               onReject={() => reject(item.id)}
             />
           ))}
@@ -174,11 +201,15 @@ function ReviewCard({
   item,
   busy,
   onApprove,
+  onSave,
+  onReEnrich,
   onReject,
 }: {
   item: ReviewItem;
   busy: boolean;
   onApprove: (metadata?: Record<string, unknown>) => void;
+  onSave: (metadata: Record<string, unknown>) => void;
+  onReEnrich: (metadata: Record<string, unknown>) => void;
   onReject: () => void;
 }) {
   const theme = useTheme();
@@ -217,12 +248,8 @@ function ReviewCard({
     setEditing(true);
   }
 
-  function approveWithEdits() {
-    if (!editing) {
-      onApprove();
-      return;
-    }
-    const edits: Record<string, unknown> = {
+  function currentEdits(): Record<string, unknown> {
+    return {
       title: editTitle,
       author: editAuthors,
       series: editSeries || null,
@@ -230,7 +257,14 @@ function ReviewCard({
       isbn: editIsbn || null,
       publisher: editPublisher || null,
     };
-    onApprove(edits);
+  }
+
+  function approveWithEdits() {
+    if (!editing) {
+      onApprove();
+      return;
+    }
+    onApprove(currentEdits());
   }
 
   // Display values for non-edit mode.
@@ -377,6 +411,28 @@ function ReviewCard({
         >
           {busy ? <Spin size={14} /> : editing ? "Save & Approve" : "Approve"}
         </Btn>
+        {editing && (
+          <>
+            <Btn
+              variant="secondary"
+              disabled={busy}
+              onClick={() => {
+                onSave(currentEdits());
+                setEditing(false);
+              }}
+            >
+              Save edits
+            </Btn>
+            <Btn
+              variant="secondary"
+              disabled={busy}
+              onClick={() => onReEnrich(currentEdits())}
+              title="Persist edits and re-run the metadata scraper chain against the new title/author"
+            >
+              {busy ? <Spin size={14} /> : "Re-enrich"}
+            </Btn>
+          </>
+        )}
         <Btn
           variant={editing ? "ghost" : "secondary"}
           disabled={busy}

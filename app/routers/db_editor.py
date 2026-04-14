@@ -1,28 +1,35 @@
 """
-Read-only database browser.
+Database browser + row editor.
 
-Power-user tool for inspecting Hermeece's SQLite database without
-SSH'ing into the container and running `sqlite3` by hand. Useful for
+Power-user tool for inspecting and surgically editing Hermeece's
+SQLite database without SSH'ing into the container. Useful for
 debugging review-queue issues, confirming author-list state,
-checking grab history, etc.
+checking grab history, and repairing the occasional bad row
+(e.g. a `manual_inject_<id>` torrent_name leaked onto a grab row
+by a pre-v1.1.4 AthenaScout send).
 
-v1.1 scope is **read-only**. Cell editing, inserts, and deletes are
-deferred to a future release (plan item 4.3 says "Read-only table
-browser as MVP, with cell editing as a follow-up"). Shipping it
-read-only keeps the blast radius bounded — the only way for this
-router to corrupt data is via a schema-name injection, which we
-prevent by whitelisting every table name against `_TABLES`.
+v1.1 shipped read-only; v1.2 adds write endpoints:
 
-  GET /api/v1/db/tables                — list tables + row counts
-  GET /api/v1/db/table/{name}/schema   — column metadata
-  GET /api/v1/db/table/{name}          — paginated rows
+  GET    /api/v1/db/tables                — list tables + row counts
+  GET    /api/v1/db/table/{name}/schema   — column metadata
+  GET    /api/v1/db/table/{name}          — paginated rows
+  POST   /api/v1/db/table/{name}/update   — batch cell updates
+  POST   /api/v1/db/table/{name}/add      — insert new row
+  DELETE /api/v1/db/table/{name}/row/{id} — delete by rowid
+
+Every write goes through the same `_TABLES` whitelist used by the
+read endpoints, so a caller can't point the editor at
+`sqlite_master` or anything outside the expected operational data.
+Writes validate types against `PRAGMA table_info`, refuse to touch
+the primary-key column, and refuse NOT NULL → NULL transitions.
 """
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel
 
 from app.database import get_db
@@ -190,3 +197,204 @@ async def list_rows(
         per_page=per_page,
         rows=row_dicts,
     )
+
+
+# ─── Write endpoints (v1.2) ───────────────────────────────────
+
+async def _column_meta(db, name: str) -> tuple[dict[str, dict], Optional[str]]:
+    """Return ({column_name: meta}, pk_column_name) for a whitelisted table.
+
+    `meta` carries `{type, notnull, pk}` for each column. The PK is
+    returned separately so callers don't have to re-scan the dict
+    and can guard against missing PKs (for tables where `rowid` is
+    the implicit key — none of our whitelisted tables, but cheap to
+    handle).
+    """
+    cur = await db.execute(f"PRAGMA table_info([{name}])")
+    rows = await cur.fetchall()
+    meta: dict[str, dict] = {}
+    pk_col: Optional[str] = None
+    for r in rows:
+        col_name = str(r[1])
+        meta[col_name] = {
+            "type": str(r[2] or "").upper(),
+            "notnull": bool(r[3]),
+            "pk": bool(r[5]),
+        }
+        if r[5]:
+            pk_col = col_name
+    return meta, pk_col
+
+
+def _coerce_value(val: Any, col_type: str, col_name: str) -> Any:
+    """Coerce a JSON-sent value into the column's declared type.
+
+    Raises `HTTPException(400)` on type mismatch — callers rely on
+    the exception to reject a whole batch rather than writing a
+    partial update.
+    """
+    if val is None or val == "":
+        return None
+    if "INTEGER" in col_type:
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            raise HTTPException(400, f"expected INTEGER for {col_name!r}, got {val!r}")
+    if "REAL" in col_type or "FLOAT" in col_type or "DOUBLE" in col_type:
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            raise HTTPException(400, f"expected REAL for {col_name!r}, got {val!r}")
+    return str(val)
+
+
+@router.post("/table/{name}/update")
+async def update_rows(name: str, body: dict = Body(...)) -> dict[str, Any]:
+    """Batch-update cells in a whitelisted table.
+
+    Body: `{"edits": {"<row_id>": {"<col>": value, ...}, ...}}`
+
+    Validates types and NOT NULL constraints against PRAGMA table_info
+    BEFORE applying any writes, so an invalid edit in one row
+    doesn't commit a partial update across the batch. Refuses to
+    touch the primary-key column.
+    """
+    _check_table(name)
+    edits = body.get("edits") or {}
+    if not edits:
+        return {"status": "ok", "updated": 0}
+
+    db = await get_db()
+    try:
+        col_meta, pk_col = await _column_meta(db, name)
+        if pk_col is None:
+            raise HTTPException(500, f"table {name!r} has no primary key column")
+
+        # Pre-validate the whole batch.
+        errors: list[dict[str, Any]] = []
+        for row_id, changes in edits.items():
+            for col, val in changes.items():
+                if col not in col_meta:
+                    errors.append({"row": row_id, "column": col, "error": f"unknown column {col!r}"})
+                    continue
+                if col_meta[col]["pk"]:
+                    errors.append({"row": row_id, "column": col, "error": "cannot edit primary key"})
+                    continue
+                if (val is None or val == "") and col_meta[col]["notnull"]:
+                    errors.append({"row": row_id, "column": col, "error": f"column {col!r} is NOT NULL"})
+        if errors:
+            return {"status": "error", "errors": errors}
+
+        updated = 0
+        for row_id, changes in edits.items():
+            set_parts: list[str] = []
+            params: list[Any] = []
+            for col, val in changes.items():
+                if col_meta[col]["pk"]:
+                    continue
+                set_parts.append(f"[{col}] = ?")
+                params.append(_coerce_value(val, col_meta[col]["type"], col))
+            if not set_parts:
+                continue
+            try:
+                params.append(int(row_id))
+            except (ValueError, TypeError):
+                raise HTTPException(400, f"row id {row_id!r} is not an integer")
+            await db.execute(
+                f"UPDATE [{name}] SET {', '.join(set_parts)} WHERE [{pk_col}] = ?",
+                params,
+            )
+            updated += 1
+        await db.commit()
+        _log.info("db_editor: updated %d row(s) in %s", updated, name)
+        return {"status": "ok", "updated": updated}
+    finally:
+        await db.close()
+
+
+@router.post("/table/{name}/add")
+async def add_row(name: str, body: dict = Body(...)) -> dict[str, Any]:
+    """Insert a new row into a whitelisted table.
+
+    Body: `{"values": {"<col>": value, ...}}`
+
+    The primary-key column is skipped (auto-increment). Columns
+    with NOT NULL that are omitted or null cause a 400. Unknown
+    columns are silently ignored so a caller can post the whole
+    row dict without pruning read-only fields.
+    """
+    _check_table(name)
+    values = (body.get("values") or {})
+    if not values:
+        raise HTTPException(400, "no values provided")
+
+    db = await get_db()
+    try:
+        col_meta, _pk = await _column_meta(db, name)
+
+        insert_cols: list[str] = []
+        insert_vals: list[Any] = []
+        for col, val in values.items():
+            if col not in col_meta or col_meta[col]["pk"]:
+                continue
+            coerced = _coerce_value(val, col_meta[col]["type"], col)
+            if coerced is None and col_meta[col]["notnull"]:
+                raise HTTPException(400, f"column {col!r} is NOT NULL")
+            insert_cols.append(f"[{col}]")
+            insert_vals.append(coerced)
+
+        if not insert_cols:
+            raise HTTPException(400, "no writable columns in payload")
+
+        placeholders = ",".join(["?"] * len(insert_cols))
+        cur = await db.execute(
+            f"INSERT INTO [{name}] ({','.join(insert_cols)}) VALUES ({placeholders})",
+            insert_vals,
+        )
+        await db.commit()
+        new_id = cur.lastrowid
+        _log.info("db_editor: inserted row id=%s into %s", new_id, name)
+        return {"status": "ok", "id": new_id}
+    finally:
+        await db.close()
+
+
+@router.delete("/table/{name}/row/{row_id}")
+async def delete_row(name: str, row_id: int) -> dict[str, Any]:
+    """Delete one row by primary key from a whitelisted table.
+
+    Translates FK-constraint violations into a 409 with a readable
+    hint so the UI can surface "delete or reassign child rows first"
+    without making the user decode sqlite3's raw error string.
+    """
+    _check_table(name)
+    db = await get_db()
+    try:
+        col_meta, pk_col = await _column_meta(db, name)
+        if pk_col is None:
+            raise HTTPException(500, f"table {name!r} has no primary key column")
+
+        cur = await db.execute(
+            f"SELECT [{pk_col}] FROM [{name}] WHERE [{pk_col}] = ?", (row_id,),
+        )
+        if await cur.fetchone() is None:
+            raise HTTPException(404, f"row {row_id} not found in {name}")
+
+        try:
+            await db.execute(
+                f"DELETE FROM [{name}] WHERE [{pk_col}] = ?", (row_id,),
+            )
+            await db.commit()
+        except sqlite3.IntegrityError as e:
+            msg = str(e)
+            if "FOREIGN KEY" in msg.upper():
+                raise HTTPException(
+                    409,
+                    "row is referenced by other records; delete or "
+                    "reassign the dependent rows first",
+                )
+            raise HTTPException(409, f"cannot delete: {msg}")
+        _log.info("db_editor: deleted row %d from %s", row_id, name)
+        return {"status": "ok"}
+    finally:
+        await db.close()

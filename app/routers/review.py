@@ -22,7 +22,9 @@ from pydantic import BaseModel
 
 from app import state
 from app.database import get_db
+from app.mam.cookie import get_current_token as _get_mam_token
 from app.orchestrator.pipeline import deliver_reviewed
+from app.storage import grabs as grabs_storage
 from app.storage import review_queue as review_storage
 
 _log = logging.getLogger("hermeece.routers.review")
@@ -52,6 +54,18 @@ class ReviewListResponse(BaseModel):
 class ApproveRequest(BaseModel):
     metadata: Optional[dict[str, Any]] = None
     note: Optional[str] = None
+
+
+class SaveRequest(BaseModel):
+    """Metadata-only edit without approving or delivering.
+
+    Lets the user fix a mistitled/misauthored review row (common
+    symptom: a pre-v1.1.4 AthenaScout send left a
+    `manual_inject_<id>` placeholder on the grab row that the
+    enricher then chased against garbage) and re-run enrichment
+    in a separate step.
+    """
+    metadata: dict[str, Any]
 
 
 class RejectRequest(BaseModel):
@@ -126,12 +140,15 @@ async def approve(review_id: int, body: ApproveRequest) -> ReviewActionResponse:
 
         # Persist any user metadata edits before sink delivery.
         if body.metadata:
-            merged = dict(row.metadata)
-            merged.update(body.metadata)
+            merged, new_title = await _merge_metadata(row.metadata, body.metadata)
             await review_storage.set_status(
                 db, review_id, review_storage.STATUS_PENDING,
                 metadata=merged,
             )
+            if new_title:
+                await grabs_storage.set_torrent_name(
+                    db, row.grab_id, new_title,
+                )
 
         ok = await deliver_reviewed(
             db,
@@ -154,6 +171,157 @@ async def approve(review_id: int, body: ApproveRequest) -> ReviewActionResponse:
             status=refreshed.status if refreshed else "unknown",
             error=None if ok else "sink delivery failed",
         )
+    finally:
+        await db.close()
+
+
+async def _merge_metadata(
+    existing: dict[str, Any], edits: dict[str, Any]
+) -> tuple[dict[str, Any], Optional[str]]:
+    """Apply user-facing edits onto the stored metadata dict.
+
+    Returns (merged_dict, new_title_for_grab_row). The second element
+    is set when the `title` field was edited, so callers know to
+    propagate the change to `grabs.torrent_name` (which drives the
+    Snatch Budget widget + Recent Activity label).
+    """
+    merged = dict(existing)
+    merged.update(edits)
+    new_title = edits.get("title") if "title" in edits else None
+    if new_title is not None:
+        new_title = str(new_title).strip() or None
+    return merged, new_title
+
+
+@router.post("/{review_id}/save", response_model=ReviewItem)
+async def save_edits(review_id: int, body: SaveRequest) -> ReviewItem:
+    """Persist metadata edits on a pending review row.
+
+    The approve endpoint also accepts edits, but only as part of the
+    final "Save & Approve" action. This separate save lets the user
+    fix bad metadata, click "Re-enrich" to rerun the scraper chain
+    against the corrected title/author, and only then approve — a
+    workflow the v1.1.4 `manual_inject_<id>` bug made necessary.
+    """
+    db = await get_db()
+    try:
+        row = await review_storage.get_entry(db, review_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="review not found")
+        if row.status != review_storage.STATUS_PENDING:
+            raise HTTPException(
+                status_code=409,
+                detail=f"cannot edit a review in status {row.status!r}",
+            )
+
+        merged, new_title = await _merge_metadata(row.metadata, body.metadata)
+        await review_storage.set_status(
+            db, review_id, review_storage.STATUS_PENDING, metadata=merged,
+        )
+        if new_title:
+            await grabs_storage.set_torrent_name(
+                db, row.grab_id, new_title,
+            )
+        refreshed = await review_storage.get_entry(db, review_id)
+        assert refreshed is not None
+        _log.info(
+            "review edit saved: review_id=%d grab_id=%d (title=%r)",
+            review_id, row.grab_id, merged.get("title"),
+        )
+        return _to_item(refreshed)
+    finally:
+        await db.close()
+
+
+@router.post("/{review_id}/re-enrich", response_model=ReviewItem)
+async def re_enrich(review_id: int, body: SaveRequest) -> ReviewItem:
+    """Re-run the metadata enricher against the row's current title+author.
+
+    Any `body.metadata` edits are applied first so the user can fix
+    the title in the same request that rebuilds enrichment. The
+    enricher result replaces `metadata.enriched`, and if it returns
+    a better title than what's on the grab row, the grab name is
+    updated too.
+    """
+    if state.dispatcher is None:
+        raise HTTPException(status_code=503, detail="dispatcher not initialized")
+    enricher = getattr(state.dispatcher, "metadata_enricher", None)
+    if enricher is None or not getattr(enricher.config, "enabled", False):
+        raise HTTPException(
+            status_code=409,
+            detail="metadata enrichment is disabled; enable it in Settings first",
+        )
+
+    db = await get_db()
+    try:
+        row = await review_storage.get_entry(db, review_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="review not found")
+        if row.status != review_storage.STATUS_PENDING:
+            raise HTTPException(
+                status_code=409,
+                detail=f"cannot re-enrich a review in status {row.status!r}",
+            )
+
+        # Apply pending edits so the enricher sees the user's correction.
+        merged, _ = await _merge_metadata(row.metadata, body.metadata or {})
+
+        # Pull the authoritative title/author from the merged metadata —
+        # enriched-field fallback covers the case where the user hasn't
+        # edited the title directly but enrichment previously found it.
+        enriched_prior = merged.get("enriched") or {}
+        title = (merged.get("title")
+                 or enriched_prior.get("title")
+                 or "").strip()
+        author = (merged.get("author")
+                  or ", ".join(enriched_prior.get("authors") or [])
+                  or "").strip()
+        if not title:
+            raise HTTPException(
+                status_code=400,
+                detail="no title available — set one before re-enriching",
+            )
+
+        grab = await grabs_storage.get_grab(db, row.grab_id)
+        mam_torrent_id = grab.mam_torrent_id if grab else ""
+
+        result = await enricher.enrich(
+            title=title,
+            author=author,
+            mam_torrent_id=mam_torrent_id,
+            mam_token=_get_mam_token(),
+        )
+
+        if result is None:
+            # Still persist the user's edits; just tell them enrichment
+            # came back empty so they can adjust + retry.
+            await review_storage.set_status(
+                db, review_id, review_storage.STATUS_PENDING, metadata=merged,
+            )
+            raise HTTPException(
+                status_code=404,
+                detail="enricher returned no match for the edited title/author",
+            )
+
+        merged["enriched"] = result.to_dict()
+        await review_storage.set_status(
+            db, review_id, review_storage.STATUS_PENDING, metadata=merged,
+        )
+
+        # Propagate a better title to the grab row if the user hasn't
+        # set one explicitly and the enricher found one.
+        new_title = str(merged.get("title") or result.title or "").strip()
+        if new_title and grab and new_title != grab.torrent_name:
+            await grabs_storage.set_torrent_name(db, row.grab_id, new_title)
+
+        refreshed = await review_storage.get_entry(db, review_id)
+        assert refreshed is not None
+        _log.info(
+            "review re-enriched: review_id=%d grab_id=%d title=%r confidence=%.2f",
+            review_id, row.grab_id, result.title or title,
+            getattr(result, "confidence", 0.0),
+        )
+        return _to_item(refreshed)
     finally:
         await db.close()
 
