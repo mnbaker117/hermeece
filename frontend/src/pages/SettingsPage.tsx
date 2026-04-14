@@ -84,7 +84,7 @@ function BadgeList({ items, onEdit, onClear }: { items: string[]; onEdit: () => 
 
 interface CredItem { key: string; label: string; configured: boolean; }
 
-function CredField({ item, desc, onSaved }: { item: CredItem; desc?: string; onSaved: () => void }) {
+function CredField({ item, desc, onSaved, canGenerate }: { item: CredItem; desc?: string; onSaved: () => void; canGenerate?: boolean }) {
   const t = useTheme();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
@@ -95,6 +95,15 @@ function CredField({ item, desc, onSaved }: { item: CredItem; desc?: string; onS
     try { await api.post(`/v1/credentials/${item.key}`, { value: value.trim() }); setEditing(false); setValue(""); onSaved(); }
     catch { /* */ } finally { setBusy(false); }
   }
+  // 64-char hex (32 random bytes). Used for the AthenaScout shared
+  // API key — the user clicks Generate, copies the visible value,
+  // then Save. After saving it becomes write-only like the other
+  // credentials.
+  function generate() {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    setValue(Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join(""));
+  }
   return (
     <SF label={item.label} desc={desc || item.key}>
       {item.configured && !editing ? (
@@ -103,9 +112,10 @@ function CredField({ item, desc, onSaved }: { item: CredItem; desc?: string; onS
           <Btn variant="ghost" onClick={() => { setEditing(true); setValue(""); }}>Change</Btn>
         </div>
       ) : editing ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <input type="password" value={value} onChange={e => setValue(e.target.value)} placeholder={`Enter ${item.label}…`} autoFocus
-            style={{ padding: "6px 10px", background: t.inp, border: `1px solid ${t.border}`, borderRadius: 6, color: t.text2, fontSize: 13, width: 200, outline: "none" }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <input type={canGenerate ? "text" : "password"} value={value} onChange={e => setValue(e.target.value)} placeholder={`Enter ${item.label}…`} autoFocus
+            style={{ padding: "6px 10px", background: t.inp, border: `1px solid ${t.border}`, borderRadius: 6, color: t.text2, fontSize: 13, width: 200, outline: "none", fontFamily: canGenerate ? "ui-monospace, SFMono-Regular, Consolas, monospace" : undefined }} />
+          {canGenerate && <Btn variant="ghost" onClick={generate}>Generate</Btn>}
           <Btn variant="primary" onClick={save} disabled={busy || !value.trim()}>{busy ? <Spin size={14} /> : "Save"}</Btn>
           <Btn variant="ghost" onClick={() => { setEditing(false); setValue(""); }}>Cancel</Btn>
         </div>
@@ -198,6 +208,7 @@ export default function SettingsPage() {
   const mamCreds = creds.filter(c => ["mam_session_id", "mam_irc_password"].includes(c.key));
   const qbitCreds = creds.filter(c => c.key === "qbit_password");
   const apiCreds = creds.filter(c => c.key === "hardcover_api_key");
+  const asCreds = creds.filter(c => c.key === "athenascout_api_key");
 
   return (
     <div style={{ paddingBottom: 40 }}>
@@ -373,6 +384,7 @@ export default function SettingsPage() {
 
       <SSection title="API Keys & Sink" desc="External services">
         {apiCreds.map(c => <CredField key={c.key} item={c} onSaved={loadCreds} desc="Bearer token from hardcover.app → Account → API. Enables richer series, ratings, and tag data." />)}
+        {asCreds.map(c => <CredField key={c.key} item={c} onSaved={loadCreds} canGenerate desc="Shared token that authorizes AthenaScout's 'Send to Hermeece' POSTs. Click Generate to create a new token, copy the visible value, then paste it into AthenaScout → Settings → Library → Hermeece API Key before clicking Save here." />)}
         <SF label="Default Sink" desc="Where approved books are delivered after review.">
           <select value={(s.default_sink as string) || "cwa"} onChange={e => upd("default_sink", e.target.value)}
             style={{ ...ist, width: 260, cursor: "pointer", appearance: "auto" }}>

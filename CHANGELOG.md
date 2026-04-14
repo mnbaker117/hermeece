@@ -7,6 +7,22 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [1.1.2] — 2026-04-14
+
+### Fixed
+
+- **AthenaScout shared API key wasn't surfaced in the UI.** v1.1.1
+  added the `athenascout_api_key` credential to the backend
+  `SECRET_KEYS` but put the Generate button in `CredentialsPage.tsx`
+  — which turns out to be orphaned dead code (never imported into
+  `App.tsx`, no route, no nav entry). Credential editing actually
+  happens inline inside `SettingsPage` via the `CredField` component
+  filtered into mam / qbit / api buckets. Fix: extended `CredField`
+  with a `canGenerate` prop (text-input + Generate button + copyable
+  value pre-save) and surfaced the new key inside Settings → API
+  Keys & Sink. The orphaned `CredentialsPage.tsx` is left as-is —
+  harmless dead code, flagged for cleanup in v1.2.
+
 ## [1.1.1] — 2026-04-14
 
 Post-release polish and a v1.0 latent bug fix. Bundles the three
