@@ -11,6 +11,7 @@ import { Btn } from "../components/Btn";
 import { Spin } from "../components/Spin";
 import { api } from "../api";
 import { useTheme } from "../theme";
+import { useVisibleInterval } from "../hooks/useVisibleInterval";
 
 interface LogEntry {
   ts: string;
@@ -50,13 +51,10 @@ export default function LogsPage() {
     }
   }
 
-  useEffect(() => {
-    load();
-    const iv = setInterval(() => {
-      if (!document.hidden && autoScroll) load();
-    }, 5000);
-    return () => clearInterval(iv);
-  }, [tab, autoScroll]);
+  useEffect(() => { load(); }, [tab]);
+  // useVisibleInterval handles document.hidden internally; only the
+  // autoScroll gate stays in the closure here.
+  useVisibleInterval(() => { if (autoScroll) load(); }, 5000);
 
   const levelColor = (level: string) => {
     switch (level) {

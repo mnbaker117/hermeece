@@ -13,6 +13,7 @@
 // tentative approvals, not for the initial capture. Phase 6b work.
 import { useEffect, useState } from "react";
 import { Btn } from "../components/Btn";
+import { useVisibleInterval } from "../hooks/useVisibleInterval";
 import { Section } from "../components/Section";
 import { Spin } from "../components/Spin";
 import { api } from "../api";
@@ -53,11 +54,8 @@ export default function TentativePage() {
     }
   }
 
-  useEffect(() => {
-    refresh();
-    const iv = setInterval(refresh, 30_000);
-    return () => clearInterval(iv);
-  }, []);
+  useEffect(() => { refresh(); }, []);
+  useVisibleInterval(refresh, 30_000);
 
   async function approve(id: number) {
     setBusyId(id);

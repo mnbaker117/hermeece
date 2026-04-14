@@ -2,12 +2,13 @@
 //
 // Modeled after AthenaScout's dashboard: hero status, stat grid,
 // pipeline health, quick actions with context, and tools sidebar.
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Btn } from "../components/Btn";
 import { Spin } from "../components/Spin";
 import { api } from "../api";
 import { useTheme } from "../theme";
 import { fmtNum, fmtBytes, fmtRatio, fmtDuration } from "../lib/format";
+import { useVisibleInterval } from "../hooks/useVisibleInterval";
 
 interface DashboardProps { onNav: (page: string) => void; }
 
@@ -65,46 +66,56 @@ export default function Dashboard({ onNav }: DashboardProps) {
   const [countdown, setCountdown] = useState(POLL_INTERVAL);
   const [lastPoll, setLastPoll] = useState<Date | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    const refresh = async () => {
-      try {
-        const [review, tentative, h, mamS, auth, cnt, recent, budgetR, settingsR] = await Promise.all([
-          api.get<ReviewListResponse>("/v1/review"),
-          api.get<TentativeListResponse>("/v1/tentative"),
-          api.get<HealthResponse>("/health"),
-          api.get<MamStatusResponse>("/v1/mam/status").catch(() => null),
-          api.get<AuthorOverviewResponse>("/v1/authors").catch(() => null),
-          api.get<DataCounts>("/v1/data/counts").catch(() => null),
-          api.get<{ grabs: { torrent_name: string; author_blob: string; grabbed_at: string }[] }>("/v1/grabs/recent").catch(() => ({ grabs: [] })),
-          api.get<BudgetResponse>("/v1/grabs/budget").catch(() => null),
-          api.get<SettingsResponse>("/v1/settings").catch(() => null),
-        ]);
-        if (cancelled) return;
-        setReviewCount(review.pending_count);
-        setTentativeCount(tentative.items.length);
-        setHealth(h); setMam(mamS); setAuthors(auth); setCounts(cnt);
-        if (recent) setRecentGrabs(recent.grabs);
-        if (budgetR) setBudget(budgetR);
-        if (settingsR) setSettings(settingsR);
-        setError(null);
-        // Update module-level cache.
-        _cache.reviewCount = review.pending_count;
-        _cache.tentativeCount = tentative.items.length;
-        _cache.health = h; _cache.mam = mamS; _cache.authors = auth; _cache.counts = cnt;
-        if (recent) _cache.recentGrabs = recent.grabs;
-        if (budgetR) _cache.budget = budgetR;
-        if (settingsR) _cache.settings = settingsR;
-        // Reset countdown after successful poll.
-        setCountdown(POLL_INTERVAL);
-        setLastPoll(new Date());
-      } catch (e) { if (!cancelled) setError(String(e)); }
-    };
-    refresh();
-    const pollIv = setInterval(refresh, POLL_INTERVAL * 1000);
-    const tickIv = setInterval(() => setCountdown((c) => Math.max(0, c - 1)), 1000);
-    return () => { cancelled = true; clearInterval(pollIv); clearInterval(tickIv); };
+  // Lifted out of useEffect so useVisibleInterval can drive it.
+  // Stable identity (no deps) — uses setState callbacks and module-
+  // level _cache, so the closure has nothing to capture-stale.
+  const refresh = useCallback(async () => {
+    try {
+      const [review, tentative, h, mamS, auth, cnt, recent, budgetR, settingsR] = await Promise.all([
+        api.get<ReviewListResponse>("/v1/review"),
+        api.get<TentativeListResponse>("/v1/tentative"),
+        api.get<HealthResponse>("/health"),
+        api.get<MamStatusResponse>("/v1/mam/status").catch(() => null),
+        api.get<AuthorOverviewResponse>("/v1/authors").catch(() => null),
+        api.get<DataCounts>("/v1/data/counts").catch(() => null),
+        api.get<{ grabs: { torrent_name: string; author_blob: string; grabbed_at: string }[] }>("/v1/grabs/recent").catch(() => ({ grabs: [] })),
+        api.get<BudgetResponse>("/v1/grabs/budget").catch(() => null),
+        api.get<SettingsResponse>("/v1/settings").catch(() => null),
+      ]);
+      setReviewCount(review.pending_count);
+      setTentativeCount(tentative.items.length);
+      setHealth(h); setMam(mamS); setAuthors(auth); setCounts(cnt);
+      if (recent) setRecentGrabs(recent.grabs);
+      if (budgetR) setBudget(budgetR);
+      if (settingsR) setSettings(settingsR);
+      setError(null);
+      // Update module-level cache.
+      _cache.reviewCount = review.pending_count;
+      _cache.tentativeCount = tentative.items.length;
+      _cache.health = h; _cache.mam = mamS; _cache.authors = auth; _cache.counts = cnt;
+      if (recent) _cache.recentGrabs = recent.grabs;
+      if (budgetR) _cache.budget = budgetR;
+      if (settingsR) _cache.settings = settingsR;
+      // Reset countdown after successful poll.
+      setCountdown(POLL_INTERVAL);
+      setLastPoll(new Date());
+    } catch (e) { setError(String(e)); }
   }, []);
+
+  // Initial fetch on mount; the visible-interval hooks below take
+  // over once the component has rendered.
+  useEffect(() => { refresh(); }, [refresh]);
+
+  // Polling cadence — paused when the tab is hidden, fires
+  // immediately on visibilitychange-back-to-visible to catch up.
+  useVisibleInterval(refresh, POLL_INTERVAL * 1000);
+
+  // Countdown ticker — also visibility-aware so we don't burn
+  // re-renders while no one is looking.
+  useVisibleInterval(
+    () => setCountdown((c) => Math.max(0, c - 1)),
+    1000,
+  );
 
   const cwaUrl = (settings?.cwa_web_url as string) || "";
   const calibreUrl = (settings?.calibre_web_url as string) || "";

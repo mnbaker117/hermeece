@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { Btn } from "../components/Btn";
 import { Section } from "../components/Section";
 import { Spin } from "../components/Spin";
+import { useVisibleInterval } from "../hooks/useVisibleInterval";
 import { api } from "../api";
 import { fmtBytes } from "../lib/format";
 import { useTheme } from "../theme";
@@ -64,11 +65,8 @@ export default function MamPage() {
     }
   }
 
-  useEffect(() => {
-    load();
-    const iv = setInterval(load, 60_000);
-    return () => clearInterval(iv);
-  }, []);
+  useEffect(() => { load(); }, []);
+  useVisibleInterval(load, 60_000);
 
   async function refresh() {
     setBusy(true);
