@@ -343,6 +343,53 @@ class QbitClient:
                 return t
         return None
 
+    async def list_torrent_files(self, torrent_hash: str) -> list[str]:
+        """GET /api/v2/torrents/files?hash=<hash>.
+
+        Returns the relative paths of every file in the torrent — the
+        same list qBit's WebUI shows under the "Content" tab. Paths
+        are relative to the torrent's `content_path` (a root folder
+        for multi-file torrents, or just the filename for single-file
+        ones). The pipeline joins these against `save_path` to locate
+        book files on disk without guessing from `torrent_name`.
+
+        Returns an empty list on auth failure, transport errors, or
+        unexpected JSON — the pipeline then falls back to the older
+        name-heuristic search instead of propagating an exception.
+        """
+        if not torrent_hash:
+            return []
+        if not await self._ensure_logged_in():
+            _log.warning("qBit list_torrent_files: not authenticated")
+            return []
+        try:
+            resp = await self._client.get(
+                "/api/v2/torrents/files",
+                params={"hash": torrent_hash},
+                headers={"Referer": self.base_url},
+            )
+        except httpx.HTTPError as e:
+            _log.warning(
+                f"qBit list_torrent_files transport error: {type(e).__name__}: {e}"
+            )
+            return []
+        if resp.status_code == 403:
+            self._logged_in = False
+            return []
+        if resp.status_code != 200:
+            _log.warning(
+                f"qBit list_torrent_files unexpected HTTP {resp.status_code}"
+            )
+            return []
+        try:
+            raw = resp.json()
+        except json.JSONDecodeError as e:
+            _log.warning(f"qBit list_torrent_files invalid JSON: {e}")
+            return []
+        if not isinstance(raw, list):
+            return []
+        return [str(f.get("name", "")) for f in raw if isinstance(f, dict) and f.get("name")]
+
 
     # ─── Migration helpers ───────────────────────────────────
 

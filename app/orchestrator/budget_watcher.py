@@ -141,6 +141,26 @@ async def _tick_inner(deps: DispatcherDeps, db) -> TickResult:
                 len(completions),
             )
             for event in completions:
+                # Ask qBit for the exact file list before handing the
+                # event to the pipeline. Without this, the pipeline
+                # was forced to guess the on-disk filename from the
+                # announce torrent_name — which breaks whenever qBit /
+                # MAM writes a different name (`Infinite Warship`
+                # announce → `Infinite_Warship_-_Scott_Bartlett.epub`
+                # on disk) or a multi-file torrent drops loose files
+                # into the save_path. Empty list = client couldn't
+                # introspect; pipeline falls back to the old heuristic.
+                try:
+                    torrent_files = await deps.qbit.list_torrent_files(
+                        event.qbit_hash
+                    )
+                except Exception:
+                    _log.exception(
+                        "budget watcher: qbit.list_torrent_files failed "
+                        "for grab_id=%d (non-fatal)", event.grab_id,
+                    )
+                    torrent_files = []
+
                 try:
                     await process_completion(
                         db, event,
@@ -158,6 +178,7 @@ async def _tick_inner(deps: DispatcherDeps, db) -> TickResult:
                         review_staging_path=deps.review_staging_path,
                         per_event_notifications=deps.per_event_notifications,
                         metadata_enricher=deps.metadata_enricher,
+                        torrent_files=torrent_files,
                     )
                 except Exception:
                     _log.exception(

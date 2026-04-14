@@ -95,4 +95,18 @@ class TorrentClient(Protocol):
 
     async def get_torrent(self, torrent_hash: str) -> Optional[TorrentInfo]: ...
 
+    async def list_torrent_files(self, torrent_hash: str) -> list[str]:
+        """Return the file paths inside a torrent, relative to save_path.
+
+        Used by the post-download pipeline to locate the actual book
+        file(s) on disk without guessing from the torrent name — a
+        torrent named "Infinite Warship" may well save as
+        "Infinite_Warship_-_Scott_Bartlett.epub", and multi-file
+        torrents can drop 37 loose files into the save_path with no
+        parent folder to anchor against. Clients that can't introspect
+        file listings return an empty list; callers then fall back to
+        the older name-heuristic search.
+        """
+        return []
+
     async def aclose(self) -> None: ...

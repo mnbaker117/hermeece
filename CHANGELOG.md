@@ -7,6 +7,54 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [1.2.3] — 2026-04-14
+
+### Fixed
+
+- **Staging picked the wrong book file when the torrent's on-disk
+  name didn't match its announce name.** `_prepare_book` built
+  `source = save_path / torrent_name`, and when that path didn't
+  exist (single-file torrent with a different filename, multi-file
+  torrent that drops loose files into the save_path, etc.) it tried
+  `_find_torrent_file` with exact / prefix / substring matches
+  against `torrent_name`. When *that* also missed — common for
+  MAM torrents where qBit writes names like
+  `Infinite_Warship_-_Scott_Bartlett.epub` for an announce titled
+  "Infinite Warship", or where the save_path is shared across many
+  torrents — the code fell through to scanning the whole save_path
+  and picking the alphabetically/size-first book file as "primary".
+
+  Blast radius: every grab that couldn't resolve its own file
+  ended up staging whoever else happened to be in the save_path.
+  In the user's case, a Tsukimichi pack of 37 loose epubs in the
+  month folder meant every mis-resolving grab since got Tsukimichi
+  Volume 14 staged — metadata enricher then ran its fuzzy search
+  against "Tsukimichi Moonlit Fantasy Volume 14" instead of the
+  actual book, and the review queue card showed the right cover
+  (from the MAM exact-ID lookup on the intended torrent) next to
+  a completely unrelated staged file.
+
+  Fix: ask qBit for the actual file list of the completed torrent
+  via a new `TorrentClient.list_torrent_files(hash)` method
+  (`GET /api/v2/torrents/files`). The budget_watcher threads the
+  result into `process_completion` → `_prepare_book` →
+  `copy_to_staging`. File paths come from qBit's own view of what
+  got written to disk, so there's no string-match step that can
+  go wrong. The legacy heuristic path still runs when the client
+  can't introspect (other clients stub `list_torrent_files` to
+  `[]`), but now FAILS loudly instead of silently scanning the
+  save_path — an unresolved file is a real error, not a reason
+  to stage a random other book.
+
+### Added
+
+- **`TorrentClient.list_torrent_files(hash)` protocol method.**
+  qBittorrent implements it against `/api/v2/torrents/files` and
+  returns the relative file paths. Transmission / Deluge /
+  rtorrent keep the default stub (empty list) until someone needs
+  it there. The pipeline treats an empty return as "couldn't
+  introspect" and falls through to the legacy name-match.
+
 ## [1.2.2] — 2026-04-14
 
 ### Fixed

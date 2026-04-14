@@ -73,8 +73,17 @@ def copy_to_staging(
     source_dir: Path,
     staging_dir: Path,
     torrent_name: str,
+    *,
+    explicit_files: Optional[list[Path]] = None,
 ) -> CopyResult:
     """Copy book files from source to staging.
+
+    When `explicit_files` is provided the copier uses exactly that
+    list — typically populated from qBit's `/torrents/files` response
+    so we copy only what belongs to this specific torrent, even when
+    the save_path also contains files from other torrents. Without
+    it, `source_dir` is scanned recursively (legacy behavior used
+    when the client can't report its file list).
 
     Creates a subdirectory under staging_dir named after the torrent.
     Returns info about the primary (largest) book file.
@@ -90,7 +99,17 @@ def copy_to_staging(
     staging_dir = Path(staging_str)
 
     try:
-        book_files = find_book_files(source_dir)
+        if explicit_files is not None:
+            # Filter the explicit list to existing book-format files
+            # and sort largest-first so the primary selection matches
+            # the find_book_files ordering.
+            book_files = sorted(
+                [p for p in explicit_files
+                 if p.is_file() and p.suffix.lstrip(".").lower() in BOOK_EXTENSIONS],
+                key=lambda p: p.stat().st_size, reverse=True,
+            )
+        else:
+            book_files = find_book_files(source_dir)
         if not book_files:
             return CopyResult(
                 success=False,

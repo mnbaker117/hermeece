@@ -32,6 +32,7 @@ step actually manual.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import shutil
@@ -144,6 +145,7 @@ async def process_completion(
     review_staging_path: str = "",
     per_event_notifications: bool = False,
     metadata_enricher: Optional[MetadataEnricher] = None,
+    torrent_files: Optional[list[str]] = None,
 ) -> bool:
     """Drive one completed download through the pipeline.
 
@@ -167,6 +169,7 @@ async def process_completion(
             db, event, staging_path=staging_path, run_id=run_id,
             ntfy_url=ntfy_url, ntfy_topic=ntfy_topic,
             metadata_enricher=metadata_enricher,
+            torrent_files=torrent_files,
         )
         if prep is None:
             return False
@@ -262,27 +265,70 @@ async def _prepare_book(
     ntfy_url: str,
     ntfy_topic: str,
     metadata_enricher: Optional[MetadataEnricher] = None,
+    torrent_files: Optional[list[str]] = None,
 ) -> Optional[_PreparedBook]:
     """Steps 1-4: locate file, optional staging, metadata, patch.
+
+    `torrent_files` is the list of file paths qBit reports for the
+    completed torrent (from `list_torrent_files(hash)`), relative to
+    `save_path`. When present, it's authoritative: we use those exact
+    paths rather than guessing. When absent or empty we fall back to
+    the older name-heuristic search (exact/prefix/substring match on
+    `torrent_name`) for legacy clients and tests.
 
     Returns a `_PreparedBook` on success, or None after recording
     a failure on the pipeline run.
     """
     loop = asyncio.get_event_loop()
-    # Scope the search to the specific torrent's directory, not the
-    # entire download root. qBit's save_path is the parent folder;
-    # the torrent_name is the subfolder (or file) the torrent created.
-    source = Path(event.save_path) / event.torrent_name
-    if not source.exists():
-        # Single-file torrents: the torrent_name may not include the
-        # extension, or the filename on disk may differ (e.g. torrent
-        # "Down Below" → file "Down Below by Scott Moon.epub"). Try to
-        # find a file whose name starts with the torrent name, or glob
-        # for the torrent name with any book extension.
-        parent = Path(event.save_path)
-        matched = _find_torrent_file(parent, event.torrent_name)
-        source = matched if matched else parent
-    book_files = await loop.run_in_executor(None, find_book_files, source)
+    save_path = Path(event.save_path)
+
+    # Authoritative path resolution via the qBit file list. Every
+    # book file we find here comes straight from the client's
+    # view of what actually got written to disk — no string-match
+    # heuristics, so a torrent announce called "Infinite Warship"
+    # that lands as `Infinite_Warship_-_Scott_Bartlett.epub`
+    # resolves correctly even though the two strings share almost
+    # no characters after casefolding.
+    book_files: list[Path] = []
+    source: Path = save_path
+    if torrent_files:
+        book_extensions = _BOOK_EXTS
+        matched_paths: list[Path] = []
+        for rel in torrent_files:
+            if not rel:
+                continue
+            candidate = save_path / rel
+            if candidate.suffix.lower() in book_extensions and candidate.is_file():
+                matched_paths.append(candidate)
+        if matched_paths:
+            # Sort for deterministic primary selection when a torrent
+            # carries multiple book files (e.g. bundle / omnibus pack).
+            book_files = sorted(matched_paths, key=lambda p: p.name.lower())
+            # `source` is a representative directory for logging +
+            # staging copy fallback. Prefer the common parent when
+            # every matched file shares one; otherwise use save_path.
+            common_parents = {p.parent for p in matched_paths}
+            source = next(iter(common_parents)) if len(common_parents) == 1 else save_path
+
+    if not book_files:
+        # Legacy fallback: scope the search to the torrent's specific
+        # directory. qBit's save_path is the parent folder; the
+        # torrent_name is the subfolder (or file) the torrent created.
+        # If that path doesn't exist we try a name-heuristic match
+        # before ever scanning the wider save_path — scanning blindly
+        # is what caused the v1.2.2 cross-grab frankensteining bug.
+        fallback_source = save_path / event.torrent_name
+        if not fallback_source.exists():
+            matched = _find_torrent_file(save_path, event.torrent_name)
+            if matched is None:
+                await _fail(db, run_id, event,
+                            f"torrent files unavailable from client; "
+                            f"no file matching {event.torrent_name!r} in {save_path}",
+                            ntfy_url, ntfy_topic)
+                return None
+            fallback_source = matched
+        source = fallback_source
+        book_files = await loop.run_in_executor(None, find_book_files, source)
 
     if not book_files:
         await _fail(db, run_id, event,
@@ -299,10 +345,20 @@ async def _prepare_book(
         len(book_files), event.grab_id, book_filename,
     )
 
-    # Optional staging copy.
+    # Optional staging copy. When qBit gave us an explicit file list,
+    # pass it through to the copier so only torrent-owned files get
+    # staged — otherwise the copier would rglob `source` and, if
+    # `source` is the shared save_path, pull in unrelated files from
+    # other torrents (the v1.2.2 cross-grab frankensteining bug).
     if staging_path:
+        explicit = book_files if torrent_files else None
         copy_result = await loop.run_in_executor(
-            None, copy_to_staging, source, Path(staging_path), event.torrent_name,
+            None,
+            functools.partial(
+                copy_to_staging,
+                source, Path(staging_path), event.torrent_name,
+                explicit_files=explicit,
+            ),
         )
         if not copy_result.success:
             await _fail(db, run_id, event,
