@@ -202,6 +202,39 @@ downloads them automatically.
 | **Folder** | Copy to any directory |
 | **Audiobookshelf** | Library folder delivery |
 
+### Using the CWA sink — disable CWA's auto-metadata first
+
+Hermeece already runs a full metadata pipeline (MAM → Goodreads →
+Amazon → Hardcover → Kobo → IBDB → Google Books) and patches the
+results into the OPF before handing the epub to the sink. CWA's
+auto-metadata features will then **overwrite Hermeece's carefully
+resolved metadata** on ingest unless you turn them off — typical
+symptom is a book landing in Calibre with the wrong title, a
+different description, a mismatched series, or Kobo/Amazon
+identifiers the review queue never approved.
+
+In CWA → **Admin → CWA Settings**, set all four of these to OFF:
+
+- `auto_metadata_enforcement`
+- `auto_metadata_fetch_enabled`
+- `auto_metadata_smart_application`
+- `hardcover_auto_fetch_enabled`
+
+(Some of these default to ON in fresh CWA installs and can get
+re-enabled by a CWA update — worth re-checking after CWA upgrades.)
+If you'd rather edit CWA's SQLite directly:
+
+```sql
+UPDATE cwa_settings SET
+  auto_metadata_enforcement = 0,
+  auto_metadata_fetch_enabled = 0,
+  auto_metadata_smart_application = 0,
+  hardcover_auto_fetch_enabled = 0;
+```
+
+Existing books in Calibre are unaffected; the flags only gate
+future ingest behavior.
+
 ---
 
 ## Requirements
