@@ -7,6 +7,65 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [1.1.1] — 2026-04-14
+
+Post-release polish and a v1.0 latent bug fix. Bundles the three
+patches that landed on `main` after the v1.1.0 tag plus a new
+shared-API-key mechanism for AthenaScout's "Send to Hermeece"
+integration.
+
+### Added
+
+- **AthenaScout shared API key.** New `athenascout_api_key` entry
+  in the Credentials page. Generates a 64-char hex token (browser
+  `crypto.getRandomValues`) that the user copies into AthenaScout's
+  Settings. The auth middleware now accepts this token via the
+  `X-API-Key` header as an alternative to the session cookie, so
+  AthenaScout → Hermeece service-to-service calls don't need a
+  login session. Constant-time compare to blunt timing oracles.
+  Value is cached in `state.athenascout_api_key` and refreshed
+  whenever the credential is set or deleted — no DB hit per request.
+
+### Changed
+
+- **Settings page column balance.** Grab Policy moved from the
+  right column to the left (semantically pairs with Pipeline and
+  Review — all "what gets grabbed / what gets approved" decisions).
+  Snatch Budget moved from left to right (MAM-imposed infrastructure,
+  pairs with MyAnonamouse and Download Client). Evens out column
+  heights and tightens the mental grouping.
+
+### Fixed
+
+- **Author allow/ignore lists were never loaded into the filter at
+  runtime.** Latent bug from v1.0: `_build_filter_config` hardcoded
+  `allowed_authors=frozenset()` and `ignored_authors=frozenset()`,
+  so every IRC announce was evaluated against empty sets regardless
+  of what was in the DB. The symptom the user reported: James S A
+  Corey was in the allowed list but an announce for his book went
+  to tentative review. Fix: `_build_filter_config` now async, reads
+  both sets from `load_normalized_sets()` at startup; every mutation
+  site (authors router, auto-train, tentative-promotion cron, digest
+  auto-promote) calls new `state.refresh_filter_authors()` so the
+  live dispatcher sees changes immediately.
+- **Epub metadata patch crashed on float `series_index`.** Python's
+  XML writer raises `TypeError: argument of type 'float' is not
+  iterable` in `_escape_attrib` when a non-string attribute value
+  is passed. The enricher and the AthenaScout handoff both produce
+  floats for `series_index`. Fix: `_set_meta` now coerces `content`
+  to `str` up front and guards against `None`; handles both the
+  "existing meta" update path and the "create new meta" path.
+- **Log viewer missed overnight history.** Ring buffer was 5000
+  records (~4–6 hours during active IRC periods) and the frontend
+  requested 500 lines by default. Bumped to 20000 records / 2000
+  lines so a user checking the log in the morning sees the full
+  overnight activity window.
+- **UI polish.** Dashboard navbar widened from `NARROW_WIDTH` to
+  `WIDE_WIDTH` so it matches the content pages. Stat-tile grid
+  tightened from `minmax(170px, 1fr)` to `minmax(150px, 1fr)` to
+  reduce asymmetry when the tile count doesn't evenly divide the
+  row width.
+
 ## [1.1.0] — 2026-04-14
 
 Quality-of-life release. Thirteen items split across two sprints —

@@ -158,6 +158,27 @@ _migration_status: Dict[str, Any] = {
 }
 
 
+# ─── AthenaScout API key cache ───────────────────────────────
+# In-memory mirror of the encrypted athenascout_api_key secret.
+# Populated at startup and on every credential update so the auth
+# middleware can compare without an async DB hit per request. None
+# when the key isn't configured — middleware then rejects requests
+# that present X-API-Key.
+athenascout_api_key: Optional[str] = None
+
+
+async def refresh_athenascout_api_key() -> None:
+    """Reload `state.athenascout_api_key` from the encrypted store.
+
+    Called at startup and whenever the key is set/deleted through the
+    credentials router so the middleware sees the new value on the
+    next request.
+    """
+    global athenascout_api_key  # noqa: PLW0603
+    from app.secrets import get_secret
+    athenascout_api_key = await get_secret("athenascout_api_key")
+
+
 # ─── Dispatcher singleton ────────────────────────────────────
 # Set by main.py's lifespan during startup. The inject router and
 # the IRC listener both read this attribute, so swapping in a test

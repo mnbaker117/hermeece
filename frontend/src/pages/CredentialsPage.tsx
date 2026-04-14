@@ -20,6 +20,18 @@ interface CredentialStatus {
   configured: boolean;
 }
 
+// Generate a 32-byte random token, hex-encoded (64 chars). Used for
+// the shared API key between Hermeece and AthenaScout — the user
+// clicks Generate, copies the value into AthenaScout's settings,
+// then saves on the Hermeece side.
+function generateApiKey(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export default function CredentialsPage() {
   const theme = useTheme();
   const [items, setItems] = useState<CredentialStatus[] | null>(null);
@@ -120,8 +132,12 @@ export default function CredentialsPage() {
 
                 {editKey === item.key && (
                   <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                    {/* Show the key as plain text for athenascout_api_key
+                        so the user can copy it into AthenaScout before
+                        saving — once saved it becomes write-only like
+                        the other credentials. */}
                     <input
-                      type="password"
+                      type={item.key === "athenascout_api_key" ? "text" : "password"}
                       value={editValue}
                       onChange={(e) => setEditValue(e.target.value)}
                       placeholder={`Enter ${item.label}…`}
@@ -135,8 +151,19 @@ export default function CredentialsPage() {
                         color: theme.text,
                         fontSize: 13,
                         outline: "none",
+                        fontFamily: item.key === "athenascout_api_key"
+                          ? "ui-monospace, SFMono-Regular, Consolas, monospace"
+                          : undefined,
                       }}
                     />
+                    {item.key === "athenascout_api_key" && (
+                      <Btn
+                        variant="ghost"
+                        onClick={() => setEditValue(generateApiKey())}
+                      >
+                        Generate
+                      </Btn>
+                    )}
                     <Btn
                       variant="primary"
                       disabled={busy || !editValue.trim()}

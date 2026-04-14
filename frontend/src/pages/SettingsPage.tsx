@@ -243,27 +243,18 @@ export default function SettingsPage() {
         </SF>
       </SSection>
 
-      <SSection title="Snatch Budget" desc="MAM active-snatches rate limiting">
-        <SF label="Budget Cap" desc="Max active snatches. New grabs queue when full; oldest queue items rotate to the delayed folder." example="MAM default: 30 for new users, 200 for Power User+.">
-          <input type="number" min={1} value={s.snatch_budget_cap as number ?? 200} onChange={e => upd("snatch_budget_cap", parseInt(e.target.value) || 200)} style={nist} />
+      <SSection title="Grab Policy" desc="VIP, freeleech, and ratio protection">
+        <SF label="Always Grab VIP" desc="VIP torrents are free downloads that don't count against your ratio. Bypasses all other policy checks." example="Enabled = any VIP torrent from an allowed author is grabbed immediately.">
+          <STog on={(s.policy_vip_always_grab as boolean) ?? true} onToggle={() => upd("policy_vip_always_grab", !(s.policy_vip_always_grab ?? true))} label />
         </SF>
-        <SF label="Queue Max" desc="Pending queue size before FIFO eviction to the delayed torrents folder." example="200 = matches budget cap for max throughput.">
-          <input type="number" min={1} value={s.snatch_queue_max as number ?? 200} onChange={e => upd("snatch_queue_max", parseInt(e.target.value) || 200)} style={nist} />
+        <SF label="Free Only" desc="Only grab free torrents (VIP, global FL, personal FL, or wedge-applied). Non-free torrents are skipped." example="Protects your ratio during lean periods.">
+          <STog on={!!s.policy_free_only} onToggle={() => upd("policy_free_only", !s.policy_free_only)} label />
         </SF>
-        <SF label="Excluded Uploaders" desc="MAM usernames whose uploads are never grabbed. Prevents downloading your own uploads." example="Add your MAM username here.">
-          {editingUploaders ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <textarea value={uploadersText} onChange={e => setUploadersText(e.target.value)} rows={2} placeholder="One per line" autoFocus
-                style={{ ...ist, width: 180, resize: "vertical", fontFamily: "inherit" }} />
-              <Btn variant="primary" onClick={() => { upd("excluded_uploaders", uploadersText.split("\n").map(s => s.trim()).filter(Boolean)); setEditingUploaders(false); }}>Done</Btn>
-              <Btn variant="ghost" onClick={() => setEditingUploaders(false)}>Cancel</Btn>
-            </div>
-          ) : (
-            <BadgeList items={uploaders} onEdit={() => { setUploadersText(uploaders.join("\n")); setEditingUploaders(true); }} onClear={() => upd("excluded_uploaders", [])} />
-          )}
+        <SF label="Use Freeleech Wedges" desc="Spend a wedge to make a non-free torrent free. Wedges are NOT spent on torrents that are already free (VIP, FL, or temporary VIP while active).">
+          <STog on={!!s.policy_use_wedge} onToggle={() => upd("policy_use_wedge", !s.policy_use_wedge)} label />
         </SF>
-        <SF label="Delayed Torrents Path" desc="When the queue overflows, the oldest grab's .torrent is dumped here. Leave empty to disable FIFO rotation (new grabs are dropped instead)." example='e.g. "/delayed-torrents" — mount this path in docker-compose'>
-          <input value={(s.delayed_torrents_path as string) || ""} onChange={e => upd("delayed_torrents_path", e.target.value)} placeholder="/delayed-torrents" style={{ ...ist, width: 220 }} />
+        <SF label="Ratio Floor" desc="Skip non-free torrents when your ratio drops below this value. 0 disables ratio protection." example="1.0 = stops grabbing non-free books when ratio approaches 1:1.">
+          <input type="number" min={0} step={0.1} value={s.policy_ratio_floor as number ?? 0} onChange={e => upd("policy_ratio_floor", parseFloat(e.target.value) || 0)} style={nist} />
         </SF>
       </SSection>
 
@@ -309,18 +300,27 @@ export default function SettingsPage() {
 
       {/* Right column */}
       <div>
-      <SSection title="Grab Policy" desc="VIP, freeleech, and ratio protection">
-        <SF label="Always Grab VIP" desc="VIP torrents are free downloads that don't count against your ratio. Bypasses all other policy checks." example="Enabled = any VIP torrent from an allowed author is grabbed immediately.">
-          <STog on={(s.policy_vip_always_grab as boolean) ?? true} onToggle={() => upd("policy_vip_always_grab", !(s.policy_vip_always_grab ?? true))} label />
+      <SSection title="Snatch Budget" desc="MAM active-snatches rate limiting">
+        <SF label="Budget Cap" desc="Max active snatches. New grabs queue when full; oldest queue items rotate to the delayed folder." example="MAM default: 30 for new users, 200 for Power User+.">
+          <input type="number" min={1} value={s.snatch_budget_cap as number ?? 200} onChange={e => upd("snatch_budget_cap", parseInt(e.target.value) || 200)} style={nist} />
         </SF>
-        <SF label="Free Only" desc="Only grab free torrents (VIP, global FL, personal FL, or wedge-applied). Non-free torrents are skipped." example="Protects your ratio during lean periods.">
-          <STog on={!!s.policy_free_only} onToggle={() => upd("policy_free_only", !s.policy_free_only)} label />
+        <SF label="Queue Max" desc="Pending queue size before FIFO eviction to the delayed torrents folder." example="200 = matches budget cap for max throughput.">
+          <input type="number" min={1} value={s.snatch_queue_max as number ?? 200} onChange={e => upd("snatch_queue_max", parseInt(e.target.value) || 200)} style={nist} />
         </SF>
-        <SF label="Use Freeleech Wedges" desc="Spend a wedge to make a non-free torrent free. Wedges are NOT spent on torrents that are already free (VIP, FL, or temporary VIP while active).">
-          <STog on={!!s.policy_use_wedge} onToggle={() => upd("policy_use_wedge", !s.policy_use_wedge)} label />
+        <SF label="Excluded Uploaders" desc="MAM usernames whose uploads are never grabbed. Prevents downloading your own uploads." example="Add your MAM username here.">
+          {editingUploaders ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <textarea value={uploadersText} onChange={e => setUploadersText(e.target.value)} rows={2} placeholder="One per line" autoFocus
+                style={{ ...ist, width: 180, resize: "vertical", fontFamily: "inherit" }} />
+              <Btn variant="primary" onClick={() => { upd("excluded_uploaders", uploadersText.split("\n").map(s => s.trim()).filter(Boolean)); setEditingUploaders(false); }}>Done</Btn>
+              <Btn variant="ghost" onClick={() => setEditingUploaders(false)}>Cancel</Btn>
+            </div>
+          ) : (
+            <BadgeList items={uploaders} onEdit={() => { setUploadersText(uploaders.join("\n")); setEditingUploaders(true); }} onClear={() => upd("excluded_uploaders", [])} />
+          )}
         </SF>
-        <SF label="Ratio Floor" desc="Skip non-free torrents when your ratio drops below this value. 0 disables ratio protection." example="1.0 = stops grabbing non-free books when ratio approaches 1:1.">
-          <input type="number" min={0} step={0.1} value={s.policy_ratio_floor as number ?? 0} onChange={e => upd("policy_ratio_floor", parseFloat(e.target.value) || 0)} style={nist} />
+        <SF label="Delayed Torrents Path" desc="When the queue overflows, the oldest grab's .torrent is dumped here. Leave empty to disable FIFO rotation (new grabs are dropped instead)." example='e.g. "/delayed-torrents" — mount this path in docker-compose'>
+          <input value={(s.delayed_torrents_path as string) || ""} onChange={e => upd("delayed_torrents_path", e.target.value)} placeholder="/delayed-torrents" style={{ ...ist, width: 220 }} />
         </SF>
       </SSection>
 
