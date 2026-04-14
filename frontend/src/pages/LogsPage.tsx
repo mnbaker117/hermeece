@@ -35,6 +35,10 @@ export default function LogsPage() {
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+  // Client-side filter — narrows the visible rows in real time
+  // without re-querying the backend. Case-insensitive substring
+  // match against logger + message.
+  const [filter, setFilter] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   async function load() {
@@ -83,6 +87,22 @@ export default function LogsPage() {
           Logs
         </h1>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            type="search"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter…"
+            style={{
+              padding: "6px 10px",
+              fontSize: 12,
+              background: theme.bg2,
+              border: `1px solid ${theme.borderL}`,
+              borderRadius: 6,
+              color: theme.text2,
+              minWidth: 180,
+              fontFamily: "inherit",
+            }}
+          />
           <span style={{ fontSize: 12, color: theme.textDim }}>
             {total} buffered
           </span>
@@ -147,7 +167,23 @@ export default function LogsPage() {
         </div>
       ) : entries.length === 0 ? (
         <p style={{ color: theme.textDim, fontSize: 13 }}>No log entries yet.</p>
-      ) : (
+      ) : (() => {
+        const q = filter.trim().toLowerCase();
+        const visible = q
+          ? entries.filter(
+              (e) =>
+                e.message.toLowerCase().includes(q) ||
+                (e.logger || "").toLowerCase().includes(q),
+            )
+          : entries;
+        if (visible.length === 0) {
+          return (
+            <p style={{ color: theme.textDim, fontSize: 13 }}>
+              No entries match <code>{filter}</code>. {entries.length} hidden.
+            </p>
+          );
+        }
+        return (
         <div
           style={{
             background: theme.bg2,
@@ -168,7 +204,7 @@ export default function LogsPage() {
             setAutoScroll(nearBottom);
           }}
         >
-          {entries.map((entry, i) => (
+          {visible.map((entry, i) => (
             <div
               key={i}
               style={{
@@ -176,7 +212,7 @@ export default function LogsPage() {
                 gap: 8,
                 padding: "2px 0",
                 borderBottom:
-                  i < entries.length - 1
+                  i < visible.length - 1
                     ? `1px solid ${theme.borderL}`
                     : "none",
               }}
@@ -201,7 +237,8 @@ export default function LogsPage() {
           ))}
           <div ref={bottomRef} />
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

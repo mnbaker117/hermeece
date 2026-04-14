@@ -55,6 +55,13 @@ COPY pyproject.toml ./
 # from `frontend/dist` relative to the app directory.
 COPY --from=frontend-build /build/dist ./frontend/dist
 
+# Bake the build's git SHA into the image so the Settings page can
+# show "Build: abc1234" and users can verify their container is on
+# the version they think it is. CI passes --build-arg
+# GIT_SHA=${{ github.sha }}; local builds get "unknown" by default.
+ARG GIT_SHA=unknown
+RUN echo "${GIT_SHA}" > /app/VERSION
+
 # Mount targets. /app/data for settings.json + hermeece.db, /calibre
 # for the Calibre library, /staging for the post-download staging area.
 RUN mkdir -p /app/data /calibre /staging

@@ -165,10 +165,14 @@ export default function SettingsPage() {
   const [use12h, setUse12h] = useState(false);
   const [testingNtfy, setTestingNtfy] = useState(false);
   const [ntfyResult, setNtfyResult] = useState<string | null>(null);
+  // Build SHA — baked into the image at Docker build time via the
+  // GIT_SHA build-arg. Standalone/dev runs return "unknown".
+  const [buildSha, setBuildSha] = useState("");
 
   useEffect(() => { api.get<S>("/v1/settings").then(setS).catch(e => setMsg(`Error loading settings: ${e}`)); }, []);
   const loadCreds = () => api.get<{ items: CredItem[] }>("/v1/credentials").then(r => setCreds(r.items)).catch(() => {});
   useEffect(() => { loadCreds(); }, []);
+  useEffect(() => { api.get<{ short_sha: string }>("/version").then(r => setBuildSha(r.short_sha || "")).catch(() => {}); }, []);
 
   if (!s) return <div style={{ display: "flex", justifyContent: "center", padding: 40 }}><Spin /></div>;
 
@@ -401,6 +405,15 @@ export default function SettingsPage() {
       </div>{/* end right column */}
 
       </div>{/* close settings-grid */}
+
+      {/* Build SHA footer — proves which container build the user is
+          actually running. Empty string falls through to nothing on
+          standalone/dev runs where /api/version returns "unknown". */}
+      {buildSha && (
+        <div style={{ marginTop: 24, paddingTop: 12, borderTop: `1px solid ${t.borderL}`, fontSize: 11, color: t.textDim, textAlign: "center" }}>
+          Build: <code style={{ color: t.text2 }}>{buildSha}</code>
+        </div>
+      )}
     </div>
   );
 }

@@ -701,6 +701,29 @@ async def health():
     }
 
 
+# Cached at module load — /app/VERSION is baked into the image at
+# Docker build time via `ARG GIT_SHA` (see Dockerfile). Standalone
+# / dev runs fall back to "unknown" and the Settings page just
+# shows that string instead of a SHA.
+_VERSION_FILE = Path(__file__).parent.parent / "VERSION"
+try:
+    _BUILD_SHA = _VERSION_FILE.read_text().strip() or "unknown"
+except Exception:
+    _BUILD_SHA = "unknown"
+
+
+@app.get("/api/version")
+async def version():
+    """Build identifier for the running container.
+
+    Returns the full git SHA from /app/VERSION (baked at Docker
+    build time) plus a 7-char short form suitable for UI display.
+    Auth-gated by the same middleware as other /api/* routes.
+    """
+    short = _BUILD_SHA[:7] if _BUILD_SHA != "unknown" else "unknown"
+    return {"sha": _BUILD_SHA, "short_sha": short}
+
+
 # ─── Frontend SPA serving ──────────────────────────────────────
 # Mounts `frontend/dist` if it exists. Anything not under /api/
 # falls through to index.html so the SPA router can take over.
