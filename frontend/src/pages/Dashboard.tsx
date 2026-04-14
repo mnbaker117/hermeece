@@ -265,7 +265,12 @@ export default function Dashboard({ onNav }: DashboardProps) {
       )}
 
       {/* ── Stat Cards ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14 }}>
+      {/* 6 tiles at minmax(170px, 1fr) wouldn't quite fit one row
+          at the Dashboard's NARROW_WIDTH (1120px) container,
+          pushing "Total Grabs" onto its own row and breaking
+          symmetry. 150px minmax fits all 6 comfortably on one row
+          and still reads fine on mobile (wraps to 2 columns). */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 14 }}>
         <StatCard label="Books to Review" value={reviewCount} icon="📚" color={(reviewCount ?? 0) > 0 ? t.accent : t.textDim} nav={() => onNav("review")} highlight={(reviewCount ?? 0) > 0} />
         <StatCard label="New Authors" value={tentativeCount} icon="🔎" color={(tentativeCount ?? 0) > 0 ? t.warn : t.textDim} nav={() => onNav("tentative")} highlight={(tentativeCount ?? 0) > 0} />
         <StatCard label="Allowed" value={allowed} icon="✅" color={t.ok} nav={() => onNav("authors")} />

@@ -49,9 +49,10 @@ const NAV: { id: string; label: string; icon: string }[] = [
 // container so columns and review cards have breathing room.
 // Form/config pages (Settings, Filters, MAM status panel) stay
 // narrow because line length matters more than horizontal real
-// estate. Navbar always uses NARROW_WIDTH so the nav cluster
-// doesn't sprawl on ultrawide screens — same convention as
-// AthenaScout (commit `7858852`, Sprint 7.3).
+// estate. Navbar uses WIDE_WIDTH too so the nav cluster doesn't
+// overflow on a mid-sized screen (9 nav+icon items + sign-out
+// button is tight at 1120px) AND so wide pages don't look
+// off-center when the navbar above them stops short.
 const NARROW_WIDTH = 1120;
 const WIDE_WIDTH = 1400;
 const WIDE_PAGES = new Set([
@@ -147,7 +148,7 @@ function AppInner() {
         borderBottom: `1px solid ${theme.borderL}`,
       }}>
         <div style={{
-          maxWidth: NARROW_WIDTH, margin: "0 auto", padding: "0 24px",
+          maxWidth: WIDE_WIDTH, margin: "0 auto", padding: "0 24px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
           height: 64, gap: 10,
         }}>
