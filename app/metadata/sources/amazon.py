@@ -54,6 +54,29 @@ _HEADERS = {
 # High-res cover extraction from script JSON blocks.
 _HIRES_RE = re.compile(r'"hiRes"\s*:\s*"([^"]+)"')
 
+# Junk-listing pre-filter — third-party seller titles, bracketed
+# format suffixes, and "By AUTHOR — Title" sham listings. These
+# slip into Amazon search results and waste a detail-page fetch
+# returning nothing useful. Pattern ported from AthenaScout's
+# Amazon source (commit 423450b on athena-dev). Examples it catches:
+#   "[(Kingdom's Hope )] [Author: Chuck Black] [May-2006]"
+#   "By BLACK CHUCK - SIR KENDRICK..."
+#   "By Chuck Black - Kingdom's Edge (2006-05-16) [Paperback]"
+_RX_JUNK_TITLE = re.compile(
+    r'^\[?\(|'                    # starts with [( or (
+    r'^By\s+[A-Z].*\s+-\s+|'      # "By AUTHOR - Title" seller format
+    r'\[\s*(?:Paperback|Hardcover|Mass Market|Library Binding)\s*\]|'
+    r'\)\s*(?:Paperback|Hardcover|Mass Market|Library Binding)\s*$|'
+    r'by\s+\w+,\s+\w+\s+\(\d{4}\)\s+(?:Paperback|Hardcover)',
+    re.IGNORECASE,
+)
+
+# Audiobook-format indicators found in RPI cards or page subtitle
+# text. Hermeece is an ebook pipeline — Audible / Audio CD results
+# never produce a usable artifact, and they otherwise win against
+# the actual ebook entry when their title matches more cleanly.
+_AUDIO_FORMAT_KEYWORDS = {"audible", "audiobook", "audio cd", "listening length"}
+
 
 class AmazonSource(MetaSource):
     name = "amazon"
@@ -146,6 +169,12 @@ class AmazonSource(MetaSource):
                 title_el = a.select_one("span")
                 if title_el:
                     result_title = title_el.get_text(strip=True)
+                    # Junk-listing pre-filter — drop third-party seller
+                    # titles before they get scored or fetched. Saves
+                    # a detail-page request for guaranteed-junk results.
+                    if _RX_JUNK_TITLE.search(result_title):
+                        _log.debug("amazon: SKIP junk title: %r", result_title)
+                        break
                     sc = score_match(
                         record_title=result_title,
                         record_authors=[],
@@ -213,6 +242,25 @@ def _parse_detail_page(html_text: str, asin: str) -> Optional[MetaRecord]:
             "value": val_el.get_text(strip=True) if val_el else "",
             "label": lab_el.get_text(strip=True) if lab_el else "",
         }
+
+    # Audiobook detection — Amazon's audiobook pages use "Listening
+    # Length" instead of page count and surface "Audible Audiobook"
+    # in the format / subtitle area. Hermeece is an ebook pipeline,
+    # so audiobook results never produce a usable artifact and would
+    # otherwise win against the actual ebook entry when their title
+    # matches more cleanly. Reject before any further processing.
+    rpi_text = " ".join(
+        f"{v.get('label', '')} {v.get('value', '')}" for v in rpi.values()
+    ).lower()
+    if any(kw in rpi_text for kw in _AUDIO_FORMAT_KEYWORDS):
+        _log.debug("amazon: skipping audiobook page for %s (%s)", asin, title[:60])
+        return None
+    subtitle_el = soup.select_one("#productSubtitle")
+    if subtitle_el:
+        subtitle = subtitle_el.get_text(strip=True).lower()
+        if any(kw in subtitle for kw in _AUDIO_FORMAT_KEYWORDS):
+            _log.debug("amazon: skipping audiobook (subtitle) for %s", asin)
+            return None
 
     # Series from RPI.
     series_name = None
