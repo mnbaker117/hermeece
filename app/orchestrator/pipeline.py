@@ -32,6 +32,7 @@ step actually manual.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import shutil
 import tempfile
@@ -352,8 +353,44 @@ async def _prepare_book(
     # Only runs when an enricher was passed AND the enricher itself
     # is enabled. Result fills nulls in `metadata` — we never
     # overwrite values we already have from embedded metadata.
+    #
+    # Short-circuit: if the grab was submitted via AthenaScout's
+    # /from-athenascout endpoint with a pre-baked metadata bundle
+    # (plan item 1.2), use that INSTEAD of calling the enricher.
+    # Saves 6 outbound scraper requests per book and guarantees
+    # consistency between the two apps. If AS metadata exists but
+    # is malformed JSON, fall through to the normal enricher path.
     enriched: Optional[MetaRecord] = None
-    if metadata_enricher is not None:
+    as_metadata_raw = await grabs_storage.get_source_metadata(db, event.grab_id)
+    if as_metadata_raw:
+        try:
+            as_meta = json.loads(as_metadata_raw)
+            enriched = MetaRecord(
+                title=as_meta.get("title") or "",
+                authors=[as_meta.get("author")] if as_meta.get("author") else [],
+                series=as_meta.get("series_name"),
+                series_index=as_meta.get("series_index"),
+                isbn=as_meta.get("isbn"),
+                language=as_meta.get("language"),
+                publisher=as_meta.get("publisher"),
+                description=as_meta.get("description"),
+                cover_url=as_meta.get("cover_url"),
+                page_count=as_meta.get("page_count"),
+                source="athenascout",
+                confidence=1.0,  # AS scanned the user's library; trust it
+            )
+            _log.info(
+                "pipeline: grab_id=%d using AthenaScout-provided metadata (enricher skipped)",
+                event.grab_id,
+            )
+        except (ValueError, TypeError, KeyError):
+            _log.warning(
+                "pipeline: grab_id=%d has malformed source_metadata; falling back to enricher",
+                event.grab_id,
+            )
+            enriched = None
+
+    if enriched is None and metadata_enricher is not None:
         try:
             enriched = await metadata_enricher.enrich(
                 title=metadata.title,

@@ -20,9 +20,10 @@ the same auth boundary.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -43,6 +44,19 @@ _BARE_ID_RX = re.compile(r"^\d+$")
 class GrabItem(BaseModel):
     url_or_id: str
     author: Optional[str] = None
+    # Optional pre-fetched metadata bundle from AthenaScout's source
+    # scan. When present, Hermeece stores the dict on the grab row
+    # and skips its own enricher chain in _prepare_book — saves
+    # 6 outbound scraper requests per book and guarantees metadata
+    # consistency between the two apps. See plan item 1.2.
+    #
+    # Expected keys (all optional):
+    #   goodreads_url, hardcover_url, kobo_url, amazon_url,
+    #   isbn, cover_url, page_count, description,
+    #   series_name, series_index
+    # Unknown keys are stored as-is; the pipeline reads only the
+    # keys it recognizes.
+    metadata: Optional[dict[str, Any]] = None
 
 
 class AthenascoutRequest(BaseModel):
@@ -110,6 +124,29 @@ async def from_athenascout(body: AthenascoutRequest) -> AthenascoutResponse:
                 raw_line=f"athenascout:{item.url_or_id}",
             )
             ok = result.action in ("submit", "queue") and result.error is None
+
+            # Persist the AthenaScout metadata bundle on the grab row
+            # so _prepare_book can use it to skip the enricher later.
+            # Best-effort: a JSON serialization or DB failure here must
+            # not flip the grab's success — the torrent was accepted;
+            # we just lose the short-circuit optimization.
+            if ok and item.metadata and result.grab_id:
+                try:
+                    db = await get_db()
+                    try:
+                        await db.execute(
+                            "UPDATE grabs SET source_metadata = ? WHERE id = ?",
+                            (json.dumps(item.metadata), result.grab_id),
+                        )
+                        await db.commit()
+                    finally:
+                        await db.close()
+                except Exception:
+                    _log.warning(
+                        "athenascout: failed to persist metadata for grab_id=%s (non-fatal)",
+                        result.grab_id, exc_info=True,
+                    )
+
             results.append(
                 GrabResultItem(
                     torrent_id=tid,
