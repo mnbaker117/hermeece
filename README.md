@@ -16,7 +16,7 @@
 [![Stars](https://img.shields.io/github/stars/mnbaker117/hermeece?style=flat-square)](https://github.com/mnbaker117/hermeece/stargazers)
 
 <!-- TODO: Add screenshot — full dashboard with budget widget, MAM card, status pills -->
-[Hermeece Dashboard](docs/images/dashboard-hero.png)
+![Hermeece Dashboard](docs/images/dashboard-hero.png)
 
 </div>
 
