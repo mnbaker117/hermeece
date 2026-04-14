@@ -7,6 +7,40 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [1.2.2] — 2026-04-14
+
+### Fixed
+
+- **Review-queue edits looked ignored because the UI preferred the
+  enricher value.** The resolved display values in `ReviewPage`
+  used `enriched.X || topLevel.X`, so when a user corrected the
+  author through Edit → Save edits, the save landed correctly on
+  the top-level metadata (and on `grabs.torrent_name` for titles)
+  but the card still rendered the enricher's pre-edit value. Flip
+  to `topLevel.X || enriched.X` — edits are authoritative; the
+  enricher dict is reference/provenance.
+- **Enriched descriptions + languages weren't patched into the
+  staged epub.** The initial staging patch in `_stage_for_review`
+  was passing `title / authors / series / series_index` only. The
+  enricher-returned description and language stayed in the
+  review-queue row + on the UI, but the on-disk epub handed to
+  CWA / Calibre had a blank `<dc:description>`, so imported books
+  showed up missing synopses even though Hermeece had said the
+  scrapers "found" them. Now passes `description` and `language`
+  to `patch_epub_metadata` at staging time — matches the re-patch
+  step added by v1.2.1.
+
+### Added
+
+- **AthenaScout `GrabItem.category`.** Hermeece now accepts an
+  optional `category` on each item in the `/from-athenascout`
+  payload (pairs with AthenaScout v1.1.5, which captures MAM's
+  category — e.g. "Ebooks - Fantasy" — during its MAM scan and
+  forwards it). `inject_grab` receives the value so the grab row
+  starts with a proper category instead of an empty string. No
+  schema change needed — the column has always existed; pre-v1.1.5
+  AS clients still work (empty string fallback).
+
 ## [1.2.1] — 2026-04-14
 
 Follow-up to the v1.2.0 review-edit workflow. Two issues the user

@@ -217,18 +217,25 @@ function ReviewCard({
   const e = m.enriched;
   const [editing, setEditing] = useState(false);
 
-  // Resolved display values (enriched > embedded > fallback).
-  const resolvedTitle = e?.title || m.title || item.book_filename;
+  // Resolved display values. Top-level (merged + user-edited) values win
+  // over the enricher's raw output — the merge happens at staging time,
+  // user edits overwrite top-level via the save/approve endpoints, and
+  // the epub itself is patched from the top-level fields. Preferring
+  // enriched here would show stale/incorrect values after a user edit
+  // (v1.2.1 bug — UI kept showing the scraper's author even after the
+  // user saved a correction). `enriched.*` is only consulted when the
+  // corresponding top-level field is genuinely empty.
+  const resolvedTitle = m.title || e?.title || item.book_filename;
   const resolvedAuthors =
-    (e?.authors && e.authors.length > 0 ? e.authors.join(", ") : m.author) ||
-    "Unknown author";
-  const resolvedSeries = e?.series || m.series || "";
-  const resolvedSeriesIndex = e?.series_index ?? m.series_index;
-  const resolvedDescription = e?.description || m.description || "";
-  const resolvedIsbn = e?.isbn || m.isbn || "";
-  const resolvedPublisher = e?.publisher || m.publisher || "";
-  const resolvedPubDate = e?.pub_date || m.pub_date || "";
-  const resolvedPageCount = e?.page_count || m.page_count;
+    m.author || (e?.authors && e.authors.length > 0 ? e.authors.join(", ") : "")
+    || "Unknown author";
+  const resolvedSeries = m.series || e?.series || "";
+  const resolvedSeriesIndex = m.series_index ?? e?.series_index;
+  const resolvedDescription = m.description || e?.description || "";
+  const resolvedIsbn = m.isbn || e?.isbn || "";
+  const resolvedPublisher = m.publisher || e?.publisher || "";
+  const resolvedPubDate = m.pub_date || e?.pub_date || "";
+  const resolvedPageCount = m.page_count || e?.page_count;
 
   // Edit state — initialized from resolved values when edit mode opens.
   const [editTitle, setEditTitle] = useState(resolvedTitle);

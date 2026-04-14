@@ -51,6 +51,14 @@ class GrabItem(BaseModel):
     # pre-v1.1.4 AthenaScout clients — in that case the placeholder
     # still lands on the row (backward-compatible fallback).
     title: Optional[str] = None
+    # MAM category as AthenaScout saw it during its own MAM scan
+    # (e.g. "Ebooks - Fantasy"). Lands on the grab row's `category`
+    # field so the dashboard filter, budget-watcher category
+    # reconciliation, and any cross-ref against the IRC announce
+    # category gate all have the right value. Empty string from
+    # pre-v1.1.5 AthenaScout clients — grab row then keeps the
+    # existing empty-category fallback.
+    category: Optional[str] = None
     # Optional pre-fetched metadata bundle from AthenaScout's source
     # scan. When present, Hermeece stores the dict on the grab row
     # and skips its own enricher chain in _prepare_book — saves
@@ -128,6 +136,7 @@ async def from_athenascout(body: AthenascoutRequest) -> AthenascoutResponse:
                 state.dispatcher,
                 torrent_id=tid,
                 torrent_name=(item.title or "").strip(),
+                category=(item.category or "").strip(),
                 author_blob=item.author or "",
                 raw_line=f"athenascout:{item.url_or_id}",
             )

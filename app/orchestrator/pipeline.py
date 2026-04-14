@@ -440,12 +440,21 @@ async def _prepare_book(
             temp_book = temp_dir / book_path.name
             shutil.copy2(str(book_path), str(temp_book))
             authors = [a.strip() for a in metadata.author.split(",") if a.strip()]
+            # Description and language have been present on BookMetadata
+            # since v1.0 but the initial staging patch was passing only
+            # title/authors/series/series_index. As a result the enricher's
+            # description + language fields were stored in the review-queue
+            # row + shown in the UI but never written to the OPF — books
+            # would land in Calibre with a blank description even though
+            # Hermeece's review card displayed a full synopsis.
             patched_ok = patch_epub_metadata(
                 temp_book,
                 title=metadata.title or None,
                 authors=authors if authors else None,
                 series=metadata.series or None,
                 series_index=metadata.series_index or None,
+                language=metadata.language or None,
+                description=metadata.description or None,
             )
             if patched_ok:
                 delivery_source = temp_book
