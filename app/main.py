@@ -63,6 +63,7 @@ from app.routers.authors import router as authors_router
 from app.routers.covers import router as covers_router
 from app.routers.credentials import router as credentials_router
 from app.routers.data_management import router as data_mgmt_router
+from app.routers.db_editor import router as db_editor_router
 from app.routers.delayed import router as delayed_router
 from app.routers.enums import router as enums_router
 from app.routers.inject import router as inject_router
@@ -81,6 +82,25 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 apply_logging(ENV_VERBOSE_LOGGING)
+
+
+class _QuietAccessFilter(logging.Filter):
+    """Suppress uvicorn access-log records for high-frequency polling
+    endpoints that drown out the real signal in `docker logs`.
+
+    /api/health fires every 30s from the Docker healthcheck, plus any
+    external monitors the user has pointed at it. The actual HTTP
+    status lives in `docker inspect`; the access log just repeats it.
+    """
+
+    _QUIET_PATHS = ("/api/health",)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(p in msg for p in self._QUIET_PATHS)
+
+
+logging.getLogger("uvicorn.access").addFilter(_QuietAccessFilter())
 
 _log = logging.getLogger("hermeece")
 
@@ -498,6 +518,7 @@ async def lifespan(app: FastAPI):
             ntfy_url=settings.get("ntfy_url", ""),
             ntfy_topic=settings.get("ntfy_topic", "hermeece"),
             weekly_auto_promote_days=7,
+            calibre_library_path=settings.get("calibre_library_path", ""),
         )
         scheduler = build_scheduler(
             daily_digest_hour=int(settings.get("daily_digest_hour", 9)),
@@ -680,6 +701,7 @@ app.include_router(authors_router)
 app.include_router(covers_router)
 app.include_router(credentials_router)
 app.include_router(data_mgmt_router)
+app.include_router(db_editor_router)
 app.include_router(delayed_router)
 app.include_router(enums_router)
 app.include_router(inject_router)
@@ -699,6 +721,29 @@ async def health():
         "service": "hermeece",
         "dispatcher_ready": state.dispatcher is not None,
     }
+
+
+# Cached at module load — /app/VERSION is baked into the image at
+# Docker build time via `ARG GIT_SHA` (see Dockerfile). Standalone
+# / dev runs fall back to "unknown" and the Settings page just
+# shows that string instead of a SHA.
+_VERSION_FILE = Path(__file__).parent.parent / "VERSION"
+try:
+    _BUILD_SHA = _VERSION_FILE.read_text().strip() or "unknown"
+except Exception:
+    _BUILD_SHA = "unknown"
+
+
+@app.get("/api/version")
+async def version():
+    """Build identifier for the running container.
+
+    Returns the full git SHA from /app/VERSION (baked at Docker
+    build time) plus a 7-char short form suitable for UI display.
+    Auth-gated by the same middleware as other /api/* routes.
+    """
+    short = _BUILD_SHA[:7] if _BUILD_SHA != "unknown" else "unknown"
+    return {"sha": _BUILD_SHA, "short_sha": short}
 
 
 # ─── Frontend SPA serving ──────────────────────────────────────

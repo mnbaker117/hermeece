@@ -14,6 +14,7 @@ import Dashboard from "./pages/Dashboard";
 import DelayedPage from "./pages/DelayedPage";
 import FiltersPage from "./pages/FiltersPage";
 import IgnoredWeeklyPage from "./pages/IgnoredWeeklyPage";
+import DatabasePage from "./pages/DatabasePage";
 import LogsPage from "./pages/LogsPage";
 import MamPage from "./pages/MamPage";
 import MigrationPage from "./pages/MigrationPage";
@@ -42,6 +43,23 @@ const NAV: { id: string; label: string; icon: string }[] = [
   { id: "ignored-weekly", label: "Weekly Ignored", icon: "📊" },
   { id: "authors", label: "Author Lists", icon: "👤" },
 ];
+
+// ─── Per-page content widths ────────────────────────────────
+// Data-heavy pages (lists, tables, log streams) get a wider
+// container so columns and review cards have breathing room.
+// Form/config pages (Settings, Filters, MAM status panel) stay
+// narrow because line length matters more than horizontal real
+// estate. Navbar always uses NARROW_WIDTH so the nav cluster
+// doesn't sprawl on ultrawide screens — same convention as
+// AthenaScout (commit `7858852`, Sprint 7.3).
+const NARROW_WIDTH = 1120;
+const WIDE_WIDTH = 1400;
+const WIDE_PAGES = new Set([
+  "review", "tentative", "ignored-weekly", "authors",
+  "delayed", "migration", "logs", "database",
+]);
+const widthFor = (page: string): number =>
+  WIDE_PAGES.has(page) ? WIDE_WIDTH : NARROW_WIDTH;
 
 function loadSavedPage(): string {
   try {
@@ -129,7 +147,7 @@ function AppInner() {
         borderBottom: `1px solid ${theme.borderL}`,
       }}>
         <div style={{
-          maxWidth: 1400, margin: "0 auto", padding: "0 24px",
+          maxWidth: NARROW_WIDTH, margin: "0 auto", padding: "0 24px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
           height: 64, gap: 10,
         }}>
@@ -174,6 +192,7 @@ function AppInner() {
             <NavIcon page={page} target="filters" icon="🎯" title="Torrent Filters" onClick={() => nav("filters")} />
             <NavIcon page={page} target="mam" icon="📡" title="MAM Status" onClick={() => nav("mam")} />
             <NavIcon page={page} target="logs" icon="📝" title="Logs" onClick={() => nav("logs")} />
+            <NavIcon page={page} target="database" icon="🗄️" title="Database browser" onClick={() => nav("database")} />
             <NavIcon page={page} target="settings" icon="⚙️" title="Settings" onClick={() => nav("settings")} />
             <ThemeToggleButton />
             <button onClick={logout} style={{
@@ -188,7 +207,7 @@ function AppInner() {
       </nav>
 
       {/* ── Main content ── */}
-      <main style={{ maxWidth: 1400, margin: "0 auto", padding: "28px 24px" }}>
+      <main style={{ maxWidth: widthFor(page), margin: "0 auto", padding: "28px 24px" }}>
         <ErrorBoundary onReset={() => nav("dashboard")} key={page}>
           <div style={{ animation: "fade-in 0.2s ease-out" }}>
             {page === "dashboard" && <Dashboard onNav={nav} />}
@@ -201,6 +220,7 @@ function AppInner() {
             {page === "migration" && <MigrationPage />}
             {page === "mam" && <MamPage />}
             {page === "logs" && <LogsPage />}
+            {page === "database" && <DatabasePage />}
             {page === "settings" && <SettingsPage />}
           </div>
         </ErrorBoundary>

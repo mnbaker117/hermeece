@@ -5,8 +5,10 @@ Sets up a process-wide AsyncIOScheduler with three cron-style jobs:
 
   - `daily_digest` — fires at `daily_digest_hour` local time every day
   - `weekly_digest` — fires Sundays at 23:30 local time
-  - `weekly_audit` — placeholder hook for the (future) Calibre weekly
-    audit; not wired yet
+  - `weekly_calibre_audit` — fires Sundays at 22:30 local time (one
+    hour before the weekly digest so any discrepancies surface in the
+    same window the user reviews). Skipped when ctx.calibre_library_path
+    is empty — the job coroutine no-ops early.
 
 The scheduler is owned by `main.py`'s lifespan — it's started after
 the dispatcher is built and stopped cleanly during shutdown. All
@@ -28,7 +30,9 @@ from typing import Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.notify.digests import DigestContext, run_daily, run_weekly
+from app.notify.digests import (
+    DigestContext, run_daily, run_weekly, run_calibre_audit,
+)
 
 _log = logging.getLogger("hermeece.orchestrator.scheduler")
 
@@ -59,6 +63,13 @@ def build_scheduler(
         except Exception:
             _log.exception("weekly digest crashed")
 
+    async def _calibre_audit_job():
+        _log.info("weekly Calibre audit tick")
+        try:
+            await run_calibre_audit(ctx)
+        except Exception:
+            _log.exception("weekly Calibre audit crashed")
+
     scheduler.add_job(
         _daily_job,
         trigger=CronTrigger(hour=int(daily_digest_hour), minute=0),
@@ -77,5 +88,22 @@ def build_scheduler(
         coalesce=True,
         max_instances=1,
     )
+    # Fire the audit an hour before the weekly digest so any
+    # discrepancies show up in the same review window. Job itself
+    # no-ops when ctx.calibre_library_path is empty.
+    scheduler.add_job(
+        _calibre_audit_job,
+        trigger=CronTrigger(day_of_week="sun", hour=22, minute=30),
+        id="weekly_calibre_audit",
+        name="Weekly Calibre audit",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+    )
+    if not ctx.calibre_library_path:
+        _log.info(
+            "weekly_calibre_audit: disabled (no calibre_library_path configured); "
+            "job will be a no-op"
+        )
 
     return scheduler

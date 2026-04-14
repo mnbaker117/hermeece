@@ -20,6 +20,7 @@ import { Section } from "../components/Section";
 import { Spin } from "../components/Spin";
 import { api } from "../api";
 import { useTheme } from "../theme";
+import { useVisibleInterval } from "../hooks/useVisibleInterval";
 
 interface ReviewItem {
   id: number;
@@ -80,11 +81,8 @@ export default function ReviewPage() {
     }
   }
 
-  useEffect(() => {
-    refresh();
-    const iv = setInterval(refresh, 30_000);
-    return () => clearInterval(iv);
-  }, []);
+  useEffect(() => { refresh(); }, []);
+  useVisibleInterval(refresh, 30_000);
 
   async function approve(id: number, metadata?: Record<string, unknown>) {
     setBusyId(id);

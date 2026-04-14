@@ -11,6 +11,7 @@ import { Btn } from "../components/Btn";
 import { Spin } from "../components/Spin";
 import { api } from "../api";
 import { useTheme } from "../theme";
+import { useVisibleInterval } from "../hooks/useVisibleInterval";
 
 interface LogEntry {
   ts: string;
@@ -25,7 +26,11 @@ interface LogsResponse {
   total_buffered: number;
 }
 
-type Tab = "all" | "announces";
+// Tab set mirrors the backend category query param +
+// existing "announces" pseudo-category. "application" and "irc"
+// slice by logger-name prefix (everything not under
+// `hermeece.mam.irc` vs everything under it).
+type Tab = "all" | "announces" | "application" | "irc";
 
 export default function LogsPage() {
   const theme = useTheme();
@@ -34,13 +39,21 @@ export default function LogsPage() {
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+  // Client-side filter — narrows the visible rows in real time
+  // without re-querying the backend. Case-insensitive substring
+  // match against logger + message.
+  const [filter, setFilter] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   async function load() {
     try {
-      const filter = tab === "announces" ? "announces" : undefined;
       const params = new URLSearchParams({ lines: "500" });
-      if (filter) params.set("filter", filter);
+      // "announces" maps to the existing is_announce pseudo-filter;
+      // "application" / "irc" map to the backend's category query
+      // param which slices by logger-name prefix.
+      if (tab === "announces") params.set("filter", "announces");
+      else if (tab === "application") params.set("category", "application");
+      else if (tab === "irc") params.set("category", "irc");
       const r = await api.get<LogsResponse>(`/v1/logs?${params}`);
       setEntries(r.entries);
       setTotal(r.total_buffered);
@@ -50,13 +63,10 @@ export default function LogsPage() {
     }
   }
 
-  useEffect(() => {
-    load();
-    const iv = setInterval(() => {
-      if (!document.hidden && autoScroll) load();
-    }, 5000);
-    return () => clearInterval(iv);
-  }, [tab, autoScroll]);
+  useEffect(() => { load(); }, [tab]);
+  // useVisibleInterval handles document.hidden internally; only the
+  // autoScroll gate stays in the closure here.
+  useVisibleInterval(() => { if (autoScroll) load(); }, 5000);
 
   const levelColor = (level: string) => {
     switch (level) {
@@ -85,6 +95,22 @@ export default function LogsPage() {
           Logs
         </h1>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            type="search"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter…"
+            style={{
+              padding: "6px 10px",
+              fontSize: 12,
+              background: theme.bg2,
+              border: `1px solid ${theme.borderL}`,
+              borderRadius: 6,
+              color: theme.text2,
+              minWidth: 180,
+              fontFamily: "inherit",
+            }}
+          />
           <span style={{ fontSize: 12, color: theme.textDim }}>
             {total} buffered
           </span>
@@ -118,7 +144,7 @@ export default function LogsPage() {
           borderBottom: `1px solid ${theme.borderL}`,
         }}
       >
-        {(["all", "announces"] as Tab[]).map((t) => (
+        {(["all", "application", "irc", "announces"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => {
@@ -138,7 +164,10 @@ export default function LogsPage() {
               textTransform: "capitalize",
             }}
           >
-            {t === "all" ? "All logs" : "Announces"}
+            {t === "all" ? "All logs"
+              : t === "application" ? "Application"
+              : t === "irc" ? "IRC"
+              : "Announces"}
           </button>
         ))}
       </div>
@@ -149,7 +178,23 @@ export default function LogsPage() {
         </div>
       ) : entries.length === 0 ? (
         <p style={{ color: theme.textDim, fontSize: 13 }}>No log entries yet.</p>
-      ) : (
+      ) : (() => {
+        const q = filter.trim().toLowerCase();
+        const visible = q
+          ? entries.filter(
+              (e) =>
+                e.message.toLowerCase().includes(q) ||
+                (e.logger || "").toLowerCase().includes(q),
+            )
+          : entries;
+        if (visible.length === 0) {
+          return (
+            <p style={{ color: theme.textDim, fontSize: 13 }}>
+              No entries match <code>{filter}</code>. {entries.length} hidden.
+            </p>
+          );
+        }
+        return (
         <div
           style={{
             background: theme.bg2,
@@ -170,7 +215,7 @@ export default function LogsPage() {
             setAutoScroll(nearBottom);
           }}
         >
-          {entries.map((entry, i) => (
+          {visible.map((entry, i) => (
             <div
               key={i}
               style={{
@@ -178,7 +223,7 @@ export default function LogsPage() {
                 gap: 8,
                 padding: "2px 0",
                 borderBottom:
-                  i < entries.length - 1
+                  i < visible.length - 1
                     ? `1px solid ${theme.borderL}`
                     : "none",
               }}
@@ -203,7 +248,8 @@ export default function LogsPage() {
           ))}
           <div ref={bottomRef} />
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

@@ -46,3 +46,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Bake the commit SHA into /app/VERSION so the Settings
+          # page can show "Build: <short-sha>" and users can verify
+          # they're running the version they think they are.
+          build-args: |
+            GIT_SHA=${{ github.sha }}

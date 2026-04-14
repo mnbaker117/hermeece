@@ -71,6 +71,15 @@ _ACCEPT_CONFIDENCE = 0.8
 # stuck scraper. Matches CWA's documented default.
 _PER_SOURCE_TIMEOUT = 15.0
 
+# Global wall-clock budget for a single enrich() call across all
+# sources. Worst case under per-source defaults: 7 sources × 15s =
+# 105s if every source individually times out. The 60s budget caps
+# that at roughly half — enough headroom for normal scans while
+# keeping the pipeline responsive on a stuck-source day. The budget
+# is also used to clamp each individual per-source wait so a slow
+# late-stage source can't single-handedly blow the cap.
+_PER_BOOK_BUDGET = 60.0
+
 
 @dataclass
 class EnrichmentConfig:
@@ -84,6 +93,7 @@ class EnrichmentConfig:
     enabled: bool = False
     priority: tuple[str, ...] = DEFAULT_PRIORITY
     per_source_timeout: float = _PER_SOURCE_TIMEOUT
+    per_book_budget: float = _PER_BOOK_BUDGET
     accept_confidence: float = _ACCEPT_CONFIDENCE
     disabled_sources: frozenset[str] = field(default_factory=frozenset)
 
@@ -152,9 +162,27 @@ class MetadataEnricher:
         source_log: list[dict] = []  # per-source contributions
         have_exact_id = False  # MAM exact-ID gives us the match; keep querying for supplemental data
         known_series = ""  # populated by MAM exact-ID for series-aware scoring
+        # Wall-clock start for the global per-book budget. Enforced
+        # before each source so a stuck source can't blow the cap and
+        # threaded into _safe_search so each per-source timeout is
+        # clamped to the remaining budget.
+        budget_started_at = asyncio.get_event_loop().time()
 
         for src in sources:
-            result = await self._safe_search(src, title=title, author=author)
+            elapsed = asyncio.get_event_loop().time() - budget_started_at
+            remaining = self.config.per_book_budget - elapsed
+            if remaining <= 0:
+                _log.warning(
+                    "enricher: per-book budget (%.0fs) exceeded — skipping "
+                    "remaining sources for %r: %s",
+                    self.config.per_book_budget, title,
+                    [s.name for s in sources[sources.index(src):]],
+                )
+                source_log.append({"source": src.name, "confidence": None, "status": "budget_exceeded"})
+                break
+            result = await self._safe_search(
+                src, title=title, author=author, max_wait=remaining,
+            )
             if result is None:
                 source_log.append({"source": src.name, "confidence": None, "status": "no_result"})
                 continue
@@ -195,17 +223,24 @@ class MetadataEnricher:
         return merged
 
     async def _safe_search(
-        self, source: MetaSource, *, title: str, author: str
+        self, source: MetaSource, *, title: str, author: str,
+        max_wait: Optional[float] = None,
     ) -> Optional[MetaRecord]:
+        # Clamp per-source timeout to the remaining global budget so a
+        # slow late-stage source can't single-handedly blow the per-book
+        # cap. `max_wait=None` means "no global cap" (test code path).
+        timeout = self.config.per_source_timeout
+        if max_wait is not None:
+            timeout = min(timeout, max(0.5, max_wait))
         try:
             return await asyncio.wait_for(
                 source.search_book(title, author),
-                timeout=self.config.per_source_timeout,
+                timeout=timeout,
             )
         except asyncio.TimeoutError:
             _log.warning(
                 "enricher: %s timed out after %.0fs",
-                source.name, self.config.per_source_timeout,
+                source.name, timeout,
             )
             return None
         except Exception:

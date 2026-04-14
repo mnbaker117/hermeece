@@ -64,6 +64,7 @@ async def tick(deps: DispatcherDeps) -> int:
                     ntfy_url=deps.ntfy_url,
                     ntfy_topic=deps.ntfy_topic,
                     auto_train_enabled=deps.auto_train_enabled,
+                    per_event_notifications=deps.per_event_notifications,
                     was_timeout=True,
                 )
                 if ok:

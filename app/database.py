@@ -238,7 +238,14 @@ CREATE INDEX IF NOT EXISTS idx_calibre_add_added_at ON calibre_additions(added_a
 # Empty in Phase 1 — the schema above is the v0 baseline. Migrations
 # only get added when we need to evolve the schema after Hermeece is
 # running in production.
-MIGRATIONS: list[str] = []
+MIGRATIONS: list[str] = [
+    # v1.1 — AthenaScout metadata handoff (plan item 1.2).
+    # Stores the JSON-encoded metadata dict that AthenaScout sends
+    # with /from-athenascout POSTs. When present on a grab row, the
+    # pipeline's _prepare_book uses it to skip the enricher call and
+    # save 6 outbound scraper requests per book.
+    "ALTER TABLE grabs ADD COLUMN source_metadata TEXT",
+]
 
 
 async def get_db() -> aiosqlite.Connection:

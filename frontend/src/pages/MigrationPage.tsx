@@ -13,6 +13,7 @@ import { Section } from "../components/Section";
 import { Spin } from "../components/Spin";
 import { api } from "../api";
 import { useTheme } from "../theme";
+import { useVisibleInterval } from "../hooks/useVisibleInterval";
 
 interface PreviewItem {
   hash: string; name: string; current_path: string; current_folder: string;
@@ -38,7 +39,10 @@ export default function MigrationPage() {
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<"pending" | "done">("pending");
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Polling is state-driven so the visibility-aware hook can pause
+  // it when the tab is hidden. Imperative start/stop callers just
+  // flip this flag; the hook handles the rest.
+  const [polling, setPolling] = useState(false);
   const [resultOffset, setResultOffset] = useState(0);
   const RESULTS_PAGE = 100;
 
@@ -64,24 +68,20 @@ export default function MigrationPage() {
     } catch { /* no job yet */ }
   }
 
-  function startPolling() {
-    stopPolling();
-    pollRef.current = setInterval(async () => {
-      try {
-        const s = await api.get<MigrationStatus>("/v1/migration/status");
-        setStatus(s);
-        setResultOffset(Math.max(0, s.results.length - RESULTS_PAGE));
-        if (!s.running) stopPolling();
-      } catch { /* swallow */ }
-    }, 2000);
-  }
+  function startPolling() { setPolling(true); }
+  function stopPolling() { setPolling(false); }
 
-  function stopPolling() {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }
+  // Single polling tick — runs on the visible-interval cadence
+  // while `polling` is true. Auto-stops when the backend reports
+  // the migration finished.
+  useVisibleInterval(async () => {
+    try {
+      const s = await api.get<MigrationStatus>("/v1/migration/status");
+      setStatus(s);
+      setResultOffset(Math.max(0, s.results.length - RESULTS_PAGE));
+      if (!s.running) setPolling(false);
+    } catch { /* swallow */ }
+  }, polling ? 2000 : 0);
 
   async function scan() {
     setBusy(true); setError(null);

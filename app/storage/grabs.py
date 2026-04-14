@@ -212,6 +212,26 @@ async def get_grab(
     return _row_to_grab(row) if row else None
 
 
+async def get_source_metadata(
+    db: aiosqlite.Connection, grab_id: int
+) -> Optional[str]:
+    """Fetch the raw source_metadata JSON blob for a grab, if any.
+
+    Separated from `get_grab` so the GrabRow dataclass stays narrow
+    and callers that don't care about the blob (the vast majority)
+    don't pay any cost. Only the pipeline's _prepare_book reads this
+    column — to short-circuit the enricher when AthenaScout pre-
+    baked metadata at submission time.
+    """
+    cursor = await db.execute(
+        "SELECT source_metadata FROM grabs WHERE id = ?", (grab_id,)
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    return row[0]  # None if column is NULL
+
+
 async def find_grab_by_torrent_id(
     db: aiosqlite.Connection, mam_torrent_id: str
 ) -> Optional[GrabRow]:
