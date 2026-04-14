@@ -187,6 +187,7 @@ async def process_completion(
                 db, event, prep,
                 review_staging_path=review_staging_path,
                 ntfy_url=ntfy_url, ntfy_topic=ntfy_topic,
+                per_event_notifications=per_event_notifications,
             )
             return ok
 
@@ -195,6 +196,7 @@ async def process_completion(
             default_sink=default_sink,
             calibre_library_path=calibre_library_path,
             folder_sink_path=folder_sink_path,
+            per_event_notifications=per_event_notifications,
             audiobookshelf_library_path=audiobookshelf_library_path,
             cwa_ingest_path=cwa_ingest_path,
             ntfy_url=ntfy_url,
@@ -441,6 +443,7 @@ async def _stage_for_review(
     review_staging_path: str,
     ntfy_url: str,
     ntfy_topic: str,
+    per_event_notifications: bool = False,
 ) -> bool:
     """Move the patched file into the review staging dir and insert a
     `book_review_queue` row. Pipeline transitions to awaiting_review.
@@ -553,7 +556,7 @@ async def _stage_for_review(
         event.grab_id, event.torrent_name, dest,
     )
 
-    if ntfy_url and ntfy_topic:
+    if per_event_notifications and ntfy_url and ntfy_topic:
         try:
             await ntfy.notify_pipeline_complete(
                 ntfy_url, ntfy_topic,
@@ -580,6 +583,7 @@ async def _deliver_prepared(
     auto_train_enabled: bool,
     review_id: Optional[int],
     was_timeout: bool,
+    per_event_notifications: bool = False,
 ) -> bool:
     """Steps 6-9: sink delivery, auto-train, counter, notify."""
     run_id = event.pipeline_run_id
@@ -651,7 +655,7 @@ async def _deliver_prepared(
         event.grab_id, event.torrent_name, sink_result.sink_name,
     )
 
-    if ntfy_url and ntfy_topic:
+    if per_event_notifications and ntfy_url and ntfy_topic:
         try:
             await ntfy.notify_pipeline_complete(
                 ntfy_url, ntfy_topic,
@@ -679,6 +683,7 @@ async def deliver_reviewed(
     ntfy_topic: str = "",
     auto_train_enabled: bool = True,
     was_timeout: bool = False,
+    per_event_notifications: bool = False,
 ) -> bool:
     """Deliver a reviewed book from the review queue to the sink.
 
@@ -762,6 +767,7 @@ async def deliver_reviewed(
         auto_train_enabled=auto_train_enabled,
         review_id=review_id,
         was_timeout=was_timeout,
+        per_event_notifications=per_event_notifications,
     )
 
     if ok:

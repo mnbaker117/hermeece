@@ -145,6 +145,7 @@ async def approve(review_id: int, body: ApproveRequest) -> ReviewActionResponse:
             ntfy_topic=deps.ntfy_topic,
             auto_train_enabled=deps.auto_train_enabled,
             was_timeout=False,
+            per_event_notifications=deps.per_event_notifications,
         )
         refreshed = await review_storage.get_entry(db, review_id)
         return ReviewActionResponse(
