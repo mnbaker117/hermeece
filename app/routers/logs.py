@@ -96,6 +96,7 @@ class LogsResponse(BaseModel):
 async def get_logs(
     lines: int = Query(200, ge=1, le=5000),
     filter: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
 ) -> LogsResponse:
     """Return recent log entries, newest first.
 
@@ -103,9 +104,26 @@ async def get_logs(
       - lines: max number of entries to return (default 200)
       - filter: "announces" to show only announce-related entries,
                 or any substring to filter messages
+      - category: logger-name-prefix filter for the log viewer's
+                  tab system. Supported values:
+                    "irc"         — only `hermeece.mam.irc.*`
+                    "application" — everything NOT under
+                                    `hermeece.mam.irc` (app-level
+                                    events: pipeline, budget,
+                                    enricher, etc.)
+                  Omit (or pass "all") for the full stream.
+                  Combines with `filter` when both are provided.
     """
     entries = list(_buffer)
     entries.reverse()  # newest first
+
+    # Category filter runs first — it's the coarsest slice and
+    # narrows the dataset before the message-level filter.
+    if category == "irc":
+        entries = [e for e in entries if e["logger"].startswith("hermeece.mam.irc")]
+    elif category == "application":
+        entries = [e for e in entries if not e["logger"].startswith("hermeece.mam.irc")]
+    # "all" / None = no category filter
 
     if filter == "announces":
         entries = [e for e in entries if e["is_announce"]]

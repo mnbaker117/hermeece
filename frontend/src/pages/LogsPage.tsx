@@ -26,7 +26,11 @@ interface LogsResponse {
   total_buffered: number;
 }
 
-type Tab = "all" | "announces";
+// Tab set mirrors the backend category query param +
+// existing "announces" pseudo-category. "application" and "irc"
+// slice by logger-name prefix (everything not under
+// `hermeece.mam.irc` vs everything under it).
+type Tab = "all" | "announces" | "application" | "irc";
 
 export default function LogsPage() {
   const theme = useTheme();
@@ -43,9 +47,13 @@ export default function LogsPage() {
 
   async function load() {
     try {
-      const filter = tab === "announces" ? "announces" : undefined;
       const params = new URLSearchParams({ lines: "500" });
-      if (filter) params.set("filter", filter);
+      // "announces" maps to the existing is_announce pseudo-filter;
+      // "application" / "irc" map to the backend's category query
+      // param which slices by logger-name prefix.
+      if (tab === "announces") params.set("filter", "announces");
+      else if (tab === "application") params.set("category", "application");
+      else if (tab === "irc") params.set("category", "irc");
       const r = await api.get<LogsResponse>(`/v1/logs?${params}`);
       setEntries(r.entries);
       setTotal(r.total_buffered);
@@ -136,7 +144,7 @@ export default function LogsPage() {
           borderBottom: `1px solid ${theme.borderL}`,
         }}
       >
-        {(["all", "announces"] as Tab[]).map((t) => (
+        {(["all", "application", "irc", "announces"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => {
@@ -156,7 +164,10 @@ export default function LogsPage() {
               textTransform: "capitalize",
             }}
           >
-            {t === "all" ? "All logs" : "Announces"}
+            {t === "all" ? "All logs"
+              : t === "application" ? "Application"
+              : t === "irc" ? "IRC"
+              : "Announces"}
           </button>
         ))}
       </div>

@@ -206,11 +206,12 @@ async def _handle_response_cookie(response: httpx.Response) -> None:
     if new_token == _current_token:
         return  # no-op: MAM sent back the same cookie (rare but valid)
 
-    old_preview = (_current_token or "")[:8] + "..." if _current_token else "<unset>"
-    new_preview = new_token[:8] + "..."
-    _log.info(
-        f"MAM rotated session cookie ({old_preview} → {new_preview}); persisting"
-    )
+    # Don't log token bytes, even a prefix — an 8-char prefix is
+    # enough entropy to correlate sessions across log aggregators,
+    # and anyone with `docker logs` access is a wider audience than
+    # the people authorized to see the MAM session token. The fact-
+    # of-rotation is the only diagnostic that matters here.
+    _log.info("MAM rotated session cookie; persisting")
     _current_token = new_token
 
     # Fire the rotation callback. Failures here must not propagate —

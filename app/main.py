@@ -82,6 +82,25 @@ logging.basicConfig(
 )
 apply_logging(ENV_VERBOSE_LOGGING)
 
+
+class _QuietAccessFilter(logging.Filter):
+    """Suppress uvicorn access-log records for high-frequency polling
+    endpoints that drown out the real signal in `docker logs`.
+
+    /api/health fires every 30s from the Docker healthcheck, plus any
+    external monitors the user has pointed at it. The actual HTTP
+    status lives in `docker inspect`; the access log just repeats it.
+    """
+
+    _QUIET_PATHS = ("/api/health",)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(p in msg for p in self._QUIET_PATHS)
+
+
+logging.getLogger("uvicorn.access").addFilter(_QuietAccessFilter())
+
 _log = logging.getLogger("hermeece")
 
 
