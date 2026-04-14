@@ -517,6 +517,7 @@ async def lifespan(app: FastAPI):
             ntfy_url=settings.get("ntfy_url", ""),
             ntfy_topic=settings.get("ntfy_topic", "hermeece"),
             weekly_auto_promote_days=7,
+            calibre_library_path=settings.get("calibre_library_path", ""),
         )
         scheduler = build_scheduler(
             daily_digest_hour=int(settings.get("daily_digest_hour", 9)),

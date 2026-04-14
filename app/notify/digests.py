@@ -48,13 +48,16 @@ class DigestContext:
 
     Pulled out of DispatcherDeps so the scheduler can build it once
     at startup without dragging the full dispatcher singleton into
-    the notify layer. Only ntfy credentials + the optional weekly
-    promotion toggle for now; if future digests need more, add fields.
+    the notify layer.
     """
 
     ntfy_url: str
     ntfy_topic: str
     weekly_auto_promote_days: int = 7
+    # v1.1: Calibre library path — required by the weekly audit job
+    # so it can shell out to `calibredb list` against the user's
+    # library. Empty string disables the audit.
+    calibre_library_path: str = ""
 
 
 # ─── Daily digest #1: accepted books ────────────────────────────
@@ -273,4 +276,125 @@ async def run_weekly(ctx: DigestContext) -> bool:
         title="Weekly digest",
         message="\n".join(lines),
         tags=["books", "calendar"],
+    )
+
+
+# ─── Weekly Calibre audit ───────────────────────────────────────
+
+
+async def run_calibre_audit(ctx: DigestContext) -> bool:
+    """Weekly audit — compare Calibre's library against Hermeece's
+    `calibre_additions` over the last 7 days, flag anything that
+    entered Calibre outside of Hermeece's knowledge.
+
+    Uses `calibredb list --for-machine` so we don't have to parse
+    metadata.db directly (whose schema can change between Calibre
+    releases). The `--for-machine` flag returns JSON; we filter
+    client-side to the last 7 days.
+
+    Skipped entirely when `ctx.calibre_library_path` is empty —
+    logged once at scheduler startup, not per-fire.
+    """
+    import asyncio as _asyncio
+    import json as _json
+    from datetime import datetime, timedelta
+
+    if not ctx.calibre_library_path:
+        return True  # disabled; not an error
+
+    try:
+        proc = await _asyncio.create_subprocess_exec(
+            "calibredb", "list",
+            "--library-path", ctx.calibre_library_path,
+            "--for-machine",
+            "--fields", "id,title,authors,timestamp",
+            stdout=_asyncio.subprocess.PIPE,
+            stderr=_asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await _asyncio.wait_for(proc.communicate(), timeout=60)
+    except (FileNotFoundError, _asyncio.TimeoutError) as e:
+        _log.warning("calibre_audit: calibredb unavailable or timed out: %s", e)
+        return False
+    except Exception:
+        _log.exception("calibre_audit: calibredb invocation failed")
+        return False
+
+    if proc.returncode != 0:
+        _log.warning(
+            "calibre_audit: calibredb list returned %d: %s",
+            proc.returncode, stderr.decode("utf-8", errors="replace")[:200],
+        )
+        return False
+
+    try:
+        calibre_books = _json.loads(stdout.decode("utf-8", errors="replace"))
+    except ValueError:
+        _log.warning("calibre_audit: calibredb list output was not valid JSON")
+        return False
+
+    # Filter to the last 7 days. calibredb's `timestamp` field is
+    # the Calibre add-time (not the file mtime). Iso-8601-ish format.
+    since = datetime.now() - timedelta(days=7)
+    recent_calibre: list[dict] = []
+    for book in calibre_books:
+        ts_str = book.get("timestamp", "")
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00").split("+")[0])
+        except (ValueError, AttributeError):
+            continue
+        if ts >= since:
+            recent_calibre.append(book)
+
+    # What Hermeece added in the same window.
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """
+            SELECT title FROM calibre_additions
+            WHERE added_at >= datetime('now', '-7 days')
+            """
+        )
+        hermeece_titles = {str(r["title"] or "").strip().lower() for r in await cursor.fetchall()}
+    finally:
+        await db.close()
+
+    # Anything in `recent_calibre` whose title isn't in hermeece_titles
+    # = added outside Hermeece (manual add, other tool, etc.).
+    outside_hermeece: list[str] = []
+    for book in recent_calibre:
+        title = str(book.get("title", "") or "").strip()
+        if title and title.lower() not in hermeece_titles:
+            outside_hermeece.append(title)
+
+    calibre_count = len(calibre_books)
+    recent_total = len(recent_calibre)
+    outside_count = len(outside_hermeece)
+
+    # No notification if everything was Hermeece-originated (the common
+    # case for steady-state users). Sends only when there's something
+    # to report.
+    if outside_count == 0:
+        _log.info(
+            "calibre_audit: library=%d, last-7d=%d, all via Hermeece — no notification",
+            calibre_count, recent_total,
+        )
+        return True
+
+    lines = [
+        f"Calibre library: {calibre_count} book(s) total",
+        f"Added in the last 7 days: {recent_total}",
+        f"Added outside Hermeece: {outside_count}",
+    ]
+    if outside_hermeece:
+        lines.append("")
+        lines.append("Recent non-Hermeece additions:")
+        lines.extend(f"• {t}" for t in outside_hermeece[:10])
+        if outside_count > 10:
+            lines.append(f"  …and {outside_count - 10} more")
+
+    return await ntfy.send(
+        url=ctx.ntfy_url, topic=ctx.ntfy_topic,
+        title=f"Calibre audit — {outside_count} non-Hermeece addition(s)",
+        message="\n".join(lines),
+        tags=["books", "mag"],
     )
