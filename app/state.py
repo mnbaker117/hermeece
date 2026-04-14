@@ -164,3 +164,38 @@ _migration_status: Dict[str, Any] = {
 # dispatcher is just `state.dispatcher = test_dispatcher` — no
 # monkey-patching, no DI framework.
 dispatcher: Optional[Any] = None
+
+
+async def refresh_filter_authors() -> None:
+    """Rebuild `state.dispatcher.filter_config`'s allow/ignore sets
+    from the current DB state.
+
+    Called from every site that mutates `authors_allowed` /
+    `authors_ignored` (authors router endpoints, tentative approve,
+    auto-train, weekly digest promotions). Cheap: two SELECT
+    queries + a dataclasses.replace on the filter_config.
+
+    No-op when the dispatcher hasn't been built yet (startup order:
+    the authors tables can be mutated by migration code before
+    main.py wires up the dispatcher).
+    """
+    if dispatcher is None:
+        return
+    import dataclasses
+    from app.database import get_db
+    from app.storage.authors import load_normalized_sets
+
+    db = await get_db()
+    try:
+        allowed, ignored = await load_normalized_sets(db)
+    finally:
+        await db.close()
+
+    dispatcher.filter_config = dataclasses.replace(
+        dispatcher.filter_config,
+        allowed_authors=allowed,
+        ignored_authors=ignored,
+    )
+    _log.debug(
+        f"refresh_filter_authors: allowed={len(allowed)} ignored={len(ignored)}"
+    )

@@ -240,6 +240,14 @@ async def _auto_promote_stale_tentative(
             moved += 1
         except Exception:
             _log.exception("weekly: promote %r failed", name)
+    # Refresh the dispatcher's filter_config if anything moved so
+    # the newly-ignored authors take effect on the next announce.
+    if moved > 0:
+        try:
+            from app import state
+            await state.refresh_filter_authors()
+        except Exception:
+            _log.debug("weekly: filter-config refresh failed (non-fatal)", exc_info=True)
     return moved
 
 

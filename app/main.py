@@ -38,6 +38,7 @@ from app.config import (
     save_settings,
 )
 from app.database import get_db, init_db
+from app.storage.authors import load_normalized_sets
 from app.filter.gate import Announce, FilterConfig
 from app.filter.normalize import extract_format, normalize_category
 from app.policy.engine import PolicyConfig
@@ -105,14 +106,29 @@ logging.getLogger("uvicorn.access").addFilter(_QuietAccessFilter())
 _log = logging.getLogger("hermeece")
 
 
-def _build_filter_config(settings: dict) -> FilterConfig:
-    """Construct a FilterConfig from a settings snapshot.
+async def _build_filter_config(settings: dict) -> FilterConfig:
+    """Construct a FilterConfig from settings + a fresh DB snapshot.
 
-    Allow / ignore lists are sourced from the database in Phase 1+
-    via the weekly audit job; for now they start empty and the
-    inject endpoint (which bypasses the filter) is the only way to
-    grab anything until Phase 3 wires up the author UI.
+    Allow / ignore lists are sourced from the `authors_allowed` and
+    `authors_ignored` DB tables at construction time. Mutations
+    (via the authors router, auto-train, tentative approval, weekly
+    digest promotions) call `state.refresh_filter_authors()` to
+    rebuild the filter_config's author sets without restarting the
+    process.
+
+    Prior to v1.1.0-post-release, this returned empty author sets —
+    meaning every IRC announce fell through to "author_not_allowlisted"
+    and silently piled up in tentative_torrents regardless of the
+    authors_allowed table's contents. That was a latent bug dating
+    to the v1.0 author-list UI ship; the filter build was never
+    updated to actually consult the tables the UI writes to.
     """
+    db = await get_db()
+    try:
+        allowed_authors, ignored_authors = await load_normalized_sets(db)
+    finally:
+        await db.close()
+
     return FilterConfig(
         allowed_categories=frozenset(
             normalize_category(c) for c in settings.get("allowed_categories", [])
@@ -131,8 +147,8 @@ def _build_filter_config(settings: dict) -> FilterConfig:
         allowed_languages=frozenset(
             lang.strip().lower() for lang in settings.get("allowed_languages", [])
         ),
-        allowed_authors=frozenset(),
-        ignored_authors=frozenset(),
+        allowed_authors=allowed_authors,
+        ignored_authors=ignored_authors,
     )
 
 
@@ -163,7 +179,7 @@ def _build_metadata_enricher(settings: dict) -> MetadataEnricher:
     return MetadataEnricher(cfg)
 
 
-def _build_dispatcher(settings: dict, resolved_secrets: dict = None) -> DispatcherDeps:
+async def _build_dispatcher(settings: dict, resolved_secrets: dict = None) -> DispatcherDeps:
     """Build the dispatcher from a settings snapshot.
 
     `resolved_secrets` is an optional dict of {key: plaintext} that
@@ -212,7 +228,7 @@ def _build_dispatcher(settings: dict, resolved_secrets: dict = None) -> Dispatch
         if u and u.strip()
     )
     return DispatcherDeps(
-        filter_config=_build_filter_config(settings),
+        filter_config=await _build_filter_config(settings),
         policy_config=PolicyConfig(
             vip_only=bool(settings.get("policy_vip_only", False)),
             free_only=bool(settings.get("policy_free_only", False)),
@@ -376,7 +392,7 @@ async def lifespan(app: FastAPI):
     set_rotation_callback(_rotation_callback)
     _log.info("MAM cookie rotation handler wired")
 
-    state.dispatcher = _build_dispatcher(settings, resolved_secrets)
+    state.dispatcher = await _build_dispatcher(settings, resolved_secrets)
     _log.info("Dispatcher initialized")
 
     # ── Background loops (supervised) ────────────────────────

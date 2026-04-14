@@ -76,12 +76,21 @@ async def train_author(
         )
         await db.commit()
         _log.info("auto-train: added %s to allow list", author_name)
-        return True
     except Exception:
         # IntegrityError from a race condition — another task already
         # added the same author between our check and our insert.
         _log.debug("auto-train: %s already exists (race)", author_name)
         return False
+
+    # Refresh the dispatcher's filter_config so the new author
+    # takes effect on the NEXT announce, not at the next restart.
+    # No-op during tests / early startup when dispatcher is None.
+    try:
+        from app import state
+        await state.refresh_filter_authors()
+    except Exception:
+        _log.debug("auto-train: filter-config refresh failed (non-fatal)", exc_info=True)
+    return True
 
 
 async def train_authors_from_blob(

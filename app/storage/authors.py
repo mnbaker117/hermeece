@@ -160,6 +160,35 @@ async def list_ignored(
     )
 
 
+async def load_normalized_sets(
+    db: aiosqlite.Connection,
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Return (allowed, ignored) as frozensets of normalized names.
+
+    Used by the filter-config refresh path — the dispatcher's
+    FilterConfig needs live allow/ignore membership, and this is
+    the cheap bulk-read (two SELECT-normalized queries, ~thousands
+    of rows max) that rebuilds both sets at once.
+
+    Empty normalized strings are dropped — they'd never match a
+    real normalized announce author anyway and would just waste
+    set space.
+    """
+    allowed_cursor = await db.execute(
+        "SELECT normalized FROM authors_allowed"
+    )
+    allowed_rows = await allowed_cursor.fetchall()
+    allowed = frozenset(str(r[0]) for r in allowed_rows if r[0])
+
+    ignored_cursor = await db.execute(
+        "SELECT normalized FROM authors_ignored"
+    )
+    ignored_rows = await ignored_cursor.fetchall()
+    ignored = frozenset(str(r[0]) for r in ignored_rows if r[0])
+
+    return allowed, ignored
+
+
 async def count_allowed(db: aiosqlite.Connection) -> int:
     return await _count_table(db, "authors_allowed")
 

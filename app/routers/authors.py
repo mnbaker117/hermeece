@@ -27,6 +27,7 @@ from typing import Optional
 from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app import state
 from app.database import get_db
 from app.filter.normalize import normalize_author
 from app.storage import authors as authors_storage
@@ -172,6 +173,8 @@ async def add_authors(
     finally:
         await db.close()
     _log.info("authors: added %d / skipped %d to %s", added, skipped, list_name)
+    if added > 0 and list_name in ("allowed", "ignored"):
+        await state.refresh_filter_authors()
     return AddAuthorResponse(added=added, skipped=skipped)
 
 
@@ -189,6 +192,8 @@ async def remove_author(list_name: str, normalized: str) -> SimpleOk:
             n = 1
     finally:
         await db.close()
+    if n > 0 and list_name in ("allowed", "ignored"):
+        await state.refresh_filter_authors()
     return SimpleOk(ok=n > 0, detail=None if n > 0 else "not found")
 
 
@@ -219,4 +224,9 @@ async def move_author(
             ok = False
     finally:
         await db.close()
+    # Any successful move touches authors_allowed and/or authors_ignored,
+    # so the dispatcher's filter_config needs to see the change before
+    # the next IRC announce fires.
+    if ok:
+        await state.refresh_filter_authors()
     return SimpleOk(ok=ok, detail=None if ok else "no-op or not found")
