@@ -117,13 +117,16 @@ class MetadataEnricher:
         config: EnrichmentConfig,
         *,
         sources: Optional[list[MetaSource]] = None,
+        hardcover_api_key: str = "",
     ):
         self.config = config
         if sources is not None:
             # Test / custom override.
             self._sources = sources
         else:
-            self._sources = _build_default_sources(config)
+            self._sources = _build_default_sources(
+                config, hardcover_api_key=hardcover_api_key,
+            )
 
     async def enrich(
         self,
@@ -184,6 +187,13 @@ class MetadataEnricher:
                 src, title=title, author=author, max_wait=remaining,
             )
             if result is None:
+                # Emit at INFO so the log stream shows the full chain —
+                # otherwise sources that fail to match for a given book
+                # are invisible and the user can't tell whether they
+                # were queried at all.
+                _log.info(
+                    "enricher: %s → no match (title=%r)", src.name, title,
+                )
                 source_log.append({"source": src.name, "confidence": None, "status": "no_result"})
                 continue
             # Exact-ID lookups (like MAM with torrent_id) already set
@@ -255,26 +265,22 @@ class MetadataEnricher:
                 pass
 
 
-def _build_default_sources(config: EnrichmentConfig) -> list[MetaSource]:
-    # Load credentials for sources that need them.
-    hardcover_key = ""
-    try:
-        import asyncio
-        from app.secrets import get_secret
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # Can't await in a sync context during startup — read from
-            # the config cache as a fallback.
-            from app.config import load_settings
-            hardcover_key = load_settings().get("hardcover_api_key", "") or ""
-        else:
-            hardcover_key = loop.run_until_complete(get_secret("hardcover_api_key")) or ""
-    except Exception:
-        try:
-            from app.config import load_settings
-            hardcover_key = load_settings().get("hardcover_api_key", "") or ""
-        except Exception:
-            pass
+def _build_default_sources(
+    config: EnrichmentConfig, *, hardcover_api_key: str = "",
+) -> list[MetaSource]:
+    """Instantiate the priority-ordered source list.
+
+    `hardcover_api_key` is plumbed through from `_build_dispatcher`'s
+    resolved_secrets — sourced from the encrypted store rather than
+    `settings.json` (which is blanked after the Sprint 6 migration).
+    A missing key leaves Hardcover registered but unauthenticated,
+    in which case it returns None silently on every search.
+    """
+    if not hardcover_api_key:
+        _log.info(
+            "enricher: no Hardcover API key provided; Hardcover source "
+            "will return no results"
+        )
 
     out: list[MetaSource] = []
     for name in config.priority:
@@ -284,9 +290,8 @@ def _build_default_sources(config: EnrichmentConfig) -> list[MetaSource]:
         if cls is None:
             _log.warning("enricher: unknown source %r in priority list", name)
             continue
-        # Pass credentials to sources that need them.
-        if name == "hardcover" and hardcover_key:
-            out.append(cls(api_key=hardcover_key))
+        if name == "hardcover" and hardcover_api_key:
+            out.append(cls(api_key=hardcover_api_key))
         else:
             out.append(cls())
     return out

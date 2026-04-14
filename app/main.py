@@ -106,6 +106,22 @@ logging.getLogger("uvicorn.access").addFilter(_QuietAccessFilter())
 _log = logging.getLogger("hermeece")
 
 
+async def _resolve_secrets() -> dict:
+    """Read every SECRET_KEY from the encrypted store into a plaintext dict.
+
+    Called at startup and any time the dispatcher or enricher is
+    rebuilt so downstream components see fresh credentials without
+    falling back to the Sprint-6-blanked `settings.json` values.
+    """
+    from app.secrets import get_secret, SECRET_KEYS
+    out: dict[str, str] = {}
+    for key in SECRET_KEYS:
+        val = await get_secret(key)
+        if val:
+            out[key] = val
+    return out
+
+
 async def _build_filter_config(settings: dict) -> FilterConfig:
     """Construct a FilterConfig from settings + a fresh DB snapshot.
 
@@ -152,13 +168,21 @@ async def _build_filter_config(settings: dict) -> FilterConfig:
     )
 
 
-def _build_metadata_enricher(settings: dict) -> MetadataEnricher:
+def _build_metadata_enricher(
+    settings: dict, resolved_secrets: Optional[dict] = None
+) -> MetadataEnricher:
     """Construct the Tier 4 metadata enricher from settings.
 
     Always returns a live enricher — the `enabled` flag on
     `EnrichmentConfig` gates whether it actually runs, so the
     pipeline can pass through `deps.metadata_enricher` without a
     None guard.
+
+    `resolved_secrets` supplies plaintext credentials from the
+    encrypted store so sources like Hardcover don't have to fall
+    back to the Sprint-6-blanked `settings.json` (the bug that left
+    Hardcover silently unauthenticated across every enrichment run
+    before v1.1.3).
     """
     cfg = EnrichmentConfig(
         enabled=bool(settings.get("metadata_enrichment_enabled", False)),
@@ -176,7 +200,9 @@ def _build_metadata_enricher(settings: dict) -> MetadataEnricher:
             settings.get("metadata_accept_confidence", 0.8)
         ),
     )
-    return MetadataEnricher(cfg)
+    rs = resolved_secrets or {}
+    hardcover_key = rs.get("hardcover_api_key") or ""
+    return MetadataEnricher(cfg, hardcover_api_key=hardcover_key)
 
 
 async def _build_dispatcher(settings: dict, resolved_secrets: dict = None) -> DispatcherDeps:
@@ -221,7 +247,7 @@ async def _build_dispatcher(settings: dict, resolved_secrets: dict = None) -> Di
     raw_tag = settings.get("qbit_tag", "hermeece-seed").strip()
     qbit_tags = [t.strip() for t in raw_tag.split(",") if t.strip()]
 
-    enricher = _build_metadata_enricher(settings)
+    enricher = _build_metadata_enricher(settings, resolved_secrets)
     excluded_uploaders = frozenset(
         u.strip().lower()
         for u in (settings.get("excluded_uploaders") or [])
@@ -379,12 +405,7 @@ async def lifespan(app: FastAPI):
         _log.info("Migrated %d secret(s) from settings.json to encrypted store", migrated)
 
     # Resolve secrets from the encrypted store for the dispatcher.
-    from app.secrets import get_secret, SECRET_KEYS
-    resolved_secrets = {}
-    for key in SECRET_KEYS:
-        val = await get_secret(key)
-        if val:
-            resolved_secrets[key] = val
+    resolved_secrets = await _resolve_secrets()
 
     # Prime the AthenaScout API key cache so the middleware can match
     # X-API-Key headers without an async DB hit per request.

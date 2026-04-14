@@ -7,6 +7,50 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [1.1.3] — 2026-04-14
+
+Urgent hotfix for two v1.1.1 regressions plus a latent enricher
+bug that's been silent since v1.0.
+
+### Fixed
+
+- **Dispatcher broken after any credential or settings save.**
+  `_build_dispatcher` became async in v1.1.1 (so the filter's
+  allow/ignore author sets can be loaded from the DB). The two
+  rebuild call sites — `routers/credentials.py::_apply_credential`
+  and `routers/settings.py::update_settings` — kept their
+  synchronous `state.dispatcher = _build_dispatcher(settings)` form,
+  which silently produces a bare coroutine object instead of a
+  `DispatcherDeps`. Every attribute access afterward raises
+  `AttributeError: 'coroutine' object has no attribute …`.
+  User-visible symptoms: Send-to-Hermeece inject silently fails,
+  `/api/v1/grabs/budget` returns 500, budget widget goes dark,
+  and the IRC pipeline effectively stops processing announces as
+  soon as the user touches any setting or credential. Fix: both
+  sites now `await _build_dispatcher(settings, resolved_secrets)`,
+  and both pull fresh secrets from the encrypted store via a new
+  `_resolve_secrets()` helper rather than injecting only the one
+  being updated.
+- **Hardcover metadata enricher silently unauthenticated since
+  Sprint 6.** `_build_default_sources` read `hardcover_api_key`
+  via a fallback to `load_settings()` whenever the event loop is
+  running (always true in the dispatcher build path). The Sprint 6
+  encrypted-store migration blanked that field in `settings.json`,
+  so Hardcover was being instantiated with `api_key=""` on every
+  enrichment run and returning None for every lookup. Fix: the
+  key is now plumbed through `_build_dispatcher` →
+  `_build_metadata_enricher` → `MetadataEnricher.__init__` →
+  `_build_default_sources` from `resolved_secrets`, same shape as
+  qbit/mam credentials. Matches AthenaScout's v1.1.1 hotfix for
+  the same storage-accessor-audit miss.
+- **No-match sources were invisible in the log stream.** The
+  enricher only emitted an INFO line on successful matches, so
+  a book that hit Goodreads/Hardcover/IBDB with no result looked
+  like those sources were never queried. Added a matching INFO
+  line on the no-match path so the full provider chain is
+  observable. (Timeouts and exceptions were already WARNING /
+  ERROR; this only changes the silent-None case.)
+
 ## [1.1.2] — 2026-04-14
 
 ### Fixed

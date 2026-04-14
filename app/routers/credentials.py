@@ -103,17 +103,27 @@ async def _apply_credential(key: str, value: str) -> None:
             _log.exception("failed to apply MAM cookie update")
 
     # Rebuild the dispatcher to pick up any credential change.
+    # `_build_dispatcher` became async in v1.1.1 when filter-author
+    # loading moved to a DB query; this call site and the one in
+    # settings.py were silently producing coroutine objects instead
+    # of a DispatcherDeps up through v1.1.2, which broke every
+    # dispatcher attribute access after the first credential save.
     try:
         from app.config import load_settings
-        from app.main import _build_dispatcher
+        from app.main import _build_dispatcher, _resolve_secrets
 
         settings = dict(load_settings())
-        # Inject the new secret so the builder sees it.
-        settings[key] = value
+
+        # Pull fresh secrets from the encrypted store rather than
+        # just injecting the one being updated — otherwise the
+        # rebuilt dispatcher would read every OTHER secret from the
+        # Sprint-6-blanked settings.json and lose qbit/mam/hardcover
+        # credentials in one go.
+        resolved_secrets = await _resolve_secrets()
 
         if state.dispatcher is not None:
             old_enricher = getattr(state.dispatcher, "metadata_enricher", None)
-            state.dispatcher = _build_dispatcher(settings)
+            state.dispatcher = await _build_dispatcher(settings, resolved_secrets)
             if old_enricher is not None:
                 try:
                     await old_enricher.aclose()

@@ -175,12 +175,18 @@ async def patch_settings(body: dict = Body(...)) -> PatchResponse:
         save_settings(settings)
         _log.info("settings patched: %s", updated)
         # Rebuild the dispatcher singleton so live loops pick up the
-        # new values. main.py owns the build function.
+        # new values. main.py owns the build function. `_build_dispatcher`
+        # is async (v1.1.1+) and reads credentials via `_resolve_secrets`;
+        # the rebuild was producing a bare coroutine object through v1.1.2,
+        # which silently corrupted `state.dispatcher`.
         try:
-            from app.main import _build_dispatcher, _build_metadata_enricher  # type: ignore
+            from app.main import (  # type: ignore
+                _build_dispatcher, _build_metadata_enricher, _resolve_secrets,
+            )
             if state.dispatcher is not None:
                 old_enricher = getattr(state.dispatcher, "metadata_enricher", None)
-                state.dispatcher = _build_dispatcher(settings)
+                resolved_secrets = await _resolve_secrets()
+                state.dispatcher = await _build_dispatcher(settings, resolved_secrets)
                 if old_enricher is not None:
                     try:
                         await old_enricher.aclose()
