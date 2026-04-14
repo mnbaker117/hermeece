@@ -14,6 +14,7 @@ import Dashboard from "./pages/Dashboard";
 import DelayedPage from "./pages/DelayedPage";
 import FiltersPage from "./pages/FiltersPage";
 import IgnoredWeeklyPage from "./pages/IgnoredWeeklyPage";
+import DatabasePage from "./pages/DatabasePage";
 import LogsPage from "./pages/LogsPage";
 import MamPage from "./pages/MamPage";
 import MigrationPage from "./pages/MigrationPage";
@@ -55,7 +56,7 @@ const NARROW_WIDTH = 1120;
 const WIDE_WIDTH = 1400;
 const WIDE_PAGES = new Set([
   "review", "tentative", "ignored-weekly", "authors",
-  "delayed", "migration", "logs",
+  "delayed", "migration", "logs", "database",
 ]);
 const widthFor = (page: string): number =>
   WIDE_PAGES.has(page) ? WIDE_WIDTH : NARROW_WIDTH;
@@ -191,6 +192,7 @@ function AppInner() {
             <NavIcon page={page} target="filters" icon="🎯" title="Torrent Filters" onClick={() => nav("filters")} />
             <NavIcon page={page} target="mam" icon="📡" title="MAM Status" onClick={() => nav("mam")} />
             <NavIcon page={page} target="logs" icon="📝" title="Logs" onClick={() => nav("logs")} />
+            <NavIcon page={page} target="database" icon="🗄️" title="Database browser" onClick={() => nav("database")} />
             <NavIcon page={page} target="settings" icon="⚙️" title="Settings" onClick={() => nav("settings")} />
             <ThemeToggleButton />
             <button onClick={logout} style={{
@@ -218,6 +220,7 @@ function AppInner() {
             {page === "migration" && <MigrationPage />}
             {page === "mam" && <MamPage />}
             {page === "logs" && <LogsPage />}
+            {page === "database" && <DatabasePage />}
             {page === "settings" && <SettingsPage />}
           </div>
         </ErrorBoundary>
