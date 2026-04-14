@@ -237,6 +237,10 @@ function ReviewCard({
   const [editSeriesIndex, setEditSeriesIndex] = useState(String(resolvedSeriesIndex ?? ""));
   const [editIsbn, setEditIsbn] = useState(resolvedIsbn);
   const [editPublisher, setEditPublisher] = useState(resolvedPublisher);
+  const [editDescription, setEditDescription] = useState(resolvedDescription);
+  const [editLanguage, setEditLanguage] = useState(
+    (m.language as string | undefined) || (e as { language?: string } | undefined)?.language || "en",
+  );
 
   function startEdit() {
     setEditTitle(resolvedTitle);
@@ -245,6 +249,10 @@ function ReviewCard({
     setEditSeriesIndex(String(resolvedSeriesIndex ?? ""));
     setEditIsbn(resolvedIsbn);
     setEditPublisher(resolvedPublisher);
+    setEditDescription(resolvedDescription);
+    setEditLanguage(
+      (m.language as string | undefined) || (e as { language?: string } | undefined)?.language || "en",
+    );
     setEditing(true);
   }
 
@@ -256,6 +264,8 @@ function ReviewCard({
       series_index: editSeriesIndex ? parseFloat(editSeriesIndex) : null,
       isbn: editIsbn || null,
       publisher: editPublisher || null,
+      description: editDescription || null,
+      language: editLanguage || null,
     };
   }
 
@@ -372,11 +382,36 @@ function ReviewCard({
           ) : isbn ? (
             <Field label="ISBN">{isbn}</Field>
           ) : null}
+          {editing && (
+            <Field label="Language"><EditInput value={editLanguage} onChange={setEditLanguage} placeholder="en" style={{ fontSize: 12, width: 80 }} /></Field>
+          )}
           <Field label="File">{item.book_filename}</Field>
           <Field label="Grab">#{item.grab_id}</Field>
         </dl>
 
-        {description && (
+        {editing ? (
+          <textarea
+            value={editDescription}
+            onChange={(ev) => setEditDescription(ev.target.value)}
+            placeholder="Description"
+            rows={6}
+            style={{
+              marginTop: 10,
+              width: "100%",
+              minHeight: 110,
+              padding: "6px 10px",
+              fontSize: 13,
+              lineHeight: 1.5,
+              borderRadius: 6,
+              border: `1px solid ${theme.accent}55`,
+              background: theme.bg3,
+              color: theme.text,
+              outline: "none",
+              resize: "vertical",
+              fontFamily: "inherit",
+            }}
+          />
+        ) : description ? (
           <p
             style={{
               marginTop: 10,
@@ -392,7 +427,7 @@ function ReviewCard({
           >
             {description}
           </p>
-        )}
+        ) : null}
       </div>
 
       <div

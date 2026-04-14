@@ -771,15 +771,58 @@ async def deliver_reviewed(
         format=entry.metadata.get("format"),
     )
 
+    # Re-patch the staged epub with the review-queue metadata. The
+    # file was already patched at staging time, but the user may
+    # have edited title/author/description/etc. through the Review
+    # page since then — without re-patching, the sink receives the
+    # pre-edit file and those edits are silently lost (v1.2.0 bug).
+    #
+    # We patch a temp copy and point delivery_source at it so the
+    # staged file stays intact for retries. If patching fails (rare
+    # — non-epub format, zip corruption, etc.) we fall through to
+    # the unpatched staged file rather than refusing delivery.
+    delivery_source = staged
+    patch_temp_dir: Optional[Path] = None
+    if (
+        staged.exists()
+        and staged.suffix.lower() == ".epub"
+        and metadata.author
+    ):
+        patch_temp_dir = Path(tempfile.mkdtemp(prefix="hermeece-repatch-"))
+        try:
+            temp_book = patch_temp_dir / staged.name
+            shutil.copy2(str(staged), str(temp_book))
+            authors = [a.strip() for a in metadata.author.split(",") if a.strip()]
+            patched_ok = patch_epub_metadata(
+                temp_book,
+                title=metadata.title or None,
+                authors=authors if authors else None,
+                series=metadata.series or None,
+                series_index=metadata.series_index or None,
+                language=metadata.language or None,
+                description=metadata.description or None,
+            )
+            if patched_ok:
+                delivery_source = temp_book
+                _log.info(
+                    "deliver_reviewed: re-patched epub with review-queue "
+                    "edits for review_id=%d", review_id,
+                )
+        except Exception:
+            _log.exception(
+                "deliver_reviewed: re-patch failed for review_id=%d "
+                "(non-fatal — delivering pre-edit file)", review_id,
+            )
+
     prep = _PreparedBook(
         book_path=staged,
         book_filename=entry.book_filename,
         book_format=entry.book_format or "",
         metadata=metadata,
         announce_author=entry.metadata.get("author", "") or grab.author_blob,
-        delivery_source=staged,
-        temp_dir=None,
-        cleanup_temp=False,
+        delivery_source=delivery_source,
+        temp_dir=patch_temp_dir,
+        cleanup_temp=patch_temp_dir is not None,
     )
 
     # Synthesize a CompletionEvent so _deliver_prepared can reuse

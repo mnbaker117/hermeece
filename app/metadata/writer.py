@@ -37,6 +37,7 @@ def patch_epub_metadata(
     series: Optional[str] = None,
     series_index: Optional[str] = None,
     language: Optional[str] = None,
+    description: Optional[str] = None,
 ) -> bool:
     """Patch metadata fields inside an epub file in-place.
 
@@ -54,7 +55,7 @@ def patch_epub_metadata(
     try:
         return _patch_opf(path, title=title, authors=authors,
                           series=series, series_index=series_index,
-                          language=language)
+                          language=language, description=description)
     except Exception:
         _log.exception("failed to patch epub metadata: %s", path)
         return False
@@ -68,6 +69,7 @@ def _patch_opf(
     series: Optional[str],
     series_index: Optional[str],
     language: Optional[str],
+    description: Optional[str] = None,
 ) -> bool:
     """Read the epub zip, patch the OPF, write it back."""
     import shutil
@@ -104,6 +106,9 @@ def _patch_opf(
 
     if language is not None:
         changed |= _set_dc(md, "language", language)
+
+    if description is not None:
+        changed |= _set_dc(md, "description", description)
 
     if series is not None:
         changed |= _set_meta(md, "calibre:series", series)

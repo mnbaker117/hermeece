@@ -7,6 +7,37 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [1.2.1] — 2026-04-14
+
+Follow-up to the v1.2.0 review-edit workflow. Two issues the user
+hit after the first release:
+
+### Fixed
+
+- **Review-queue metadata edits never reached Calibre.** The epub
+  file is patched at staging time (see `_stage_for_review`) with
+  the pre-edit metadata — by the time the user corrects the title
+  / author / description / etc. through the Review page, the
+  staged file on disk is already baked. `deliver_reviewed` then
+  handed that stale file straight to the sink, so CWA / Calibre
+  imported a book with the old (wrong) metadata even though the
+  review-queue row + dashboard reflected the edit. Fix:
+  `deliver_reviewed` now re-patches a temp copy of the staged
+  epub with the current review-queue metadata before delivery,
+  same shape as `_stage_for_review`'s patch step. On patch
+  failure the sink still gets the unpatched file rather than
+  refusing delivery.
+
+### Added
+
+- **Description + Language editable in the Review page.** The
+  v1.2.0 edit form only exposed title / author / series /
+  series_index / isbn / publisher. Now also editable:
+  - **Description** — inline textarea with resize handle
+  - **Language** — small input (defaults to `en`)
+  `patch_epub_metadata` gained a `description` parameter so the
+  `<dc:description>` element in the OPF gets the edit too.
+
 ## [1.2.0] — 2026-04-14
 
 Operator-tooling release. Two interlocking editors — one in the
