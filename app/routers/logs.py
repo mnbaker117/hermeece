@@ -32,7 +32,13 @@ router = APIRouter(prefix="/api/v1/logs", tags=["logs"])
 
 # ─── In-memory log buffer ──────────────────────────────────────
 
-_MAX_RECORDS = 5000
+# Ring buffer capacity. Sized to hold roughly a day of steady-state
+# log output even during active IRC hours. Overflow evicts FIFO, so
+# announces older than the buffer are gone — the `announces` DB
+# table is the authoritative long-term record, the buffer is just
+# the fast path for the in-app viewer. Bumped from 5000 to 20000
+# in a v1.1 hotfix after users reported losing overnight history.
+_MAX_RECORDS = 20000
 _buffer: deque[dict] = deque(maxlen=_MAX_RECORDS)
 
 

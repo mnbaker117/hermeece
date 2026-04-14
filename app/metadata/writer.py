@@ -184,19 +184,31 @@ def _set_dc_creators(md_element, authors: list[str]) -> bool:
     return True
 
 
-def _set_meta(md_element, name: str, content: str) -> bool:
-    """Set a <meta name="..." content="..."> element."""
+def _set_meta(md_element, name: str, content) -> bool:
+    """Set a <meta name="..." content="..."> element.
+
+    Coerces `content` to str up front — Python's XML writer raises
+    `TypeError: argument of type 'float' is not iterable` in
+    `_escape_attrib` if you pass a non-string attribute value.
+    The enricher yields `series_index` as a float, and the v1.1
+    metadata-handoff path from AthenaScout can land similar
+    float/int values, so stringifying here covers every caller
+    instead of forcing each to remember.
+    """
+    if content is None:
+        return False
+    content_str = str(content)
     # Check both namespaced and non-namespaced meta elements.
     for ns in [f"{{{_OPF}}}", ""]:
         for meta in md_element.findall(f"{ns}meta"):
             if meta.get("name") == name:
-                if meta.get("content") == content:
+                if meta.get("content") == content_str:
                     return False
-                meta.set("content", content)
+                meta.set("content", content_str)
                 return True
 
     # Not found — create it.
     meta = ET.SubElement(md_element, "meta")
     meta.set("name", name)
-    meta.set("content", content)
+    meta.set("content", content_str)
     return True

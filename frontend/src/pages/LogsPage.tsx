@@ -47,7 +47,11 @@ export default function LogsPage() {
 
   async function load() {
     try {
-      const params = new URLSearchParams({ lines: "500" });
+      // 2000 lines balances "enough history to actually be useful"
+      // against "render fast on slower machines." The backend ring
+      // buffer holds 20000 records; a user who needs more can
+      // query /api/v1/logs?lines=... directly.
+      const params = new URLSearchParams({ lines: "2000" });
       // "announces" maps to the existing is_announce pseudo-filter;
       // "application" / "irc" map to the backend's category query
       // param which slices by logger-name prefix.
