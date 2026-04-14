@@ -7,6 +7,22 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [1.1.4] — 2026-04-14
+
+### Fixed
+
+- **AthenaScout sends landed with `manual_inject_<id>` as the title.**
+  `/api/v1/grabs/from-athenascout` was calling `inject_grab` without
+  a `torrent_name`, so the default `f"manual_inject_{torrent_id}"`
+  placeholder got written to `grabs.torrent_name` and leaked into
+  the Snatch Budget widget, Recent Activity, the review queue, and
+  (worst of all) the metadata enricher's fuzzy search — which
+  returned garbage against the placeholder title. The `GrabItem`
+  schema now accepts an optional `title` field; AthenaScout v1.1.4
+  populates it from its own `books.title` row. Absent-title payloads
+  from pre-v1.1.4 AthenaScout clients still work — they just keep
+  the old placeholder behavior.
+
 ## [1.1.3] — 2026-04-14
 
 Urgent hotfix for two v1.1.1 regressions plus a latent enricher

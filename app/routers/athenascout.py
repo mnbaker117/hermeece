@@ -44,6 +44,13 @@ _BARE_ID_RX = re.compile(r"^\d+$")
 class GrabItem(BaseModel):
     url_or_id: str
     author: Optional[str] = None
+    # Book title as AthenaScout knows it. Passed to `inject_grab`
+    # as `torrent_name` so the grab row, dashboard, review queue
+    # label, and enricher fuzzy-search all use the real title
+    # instead of the `manual_inject_<id>` placeholder. Absent from
+    # pre-v1.1.4 AthenaScout clients — in that case the placeholder
+    # still lands on the row (backward-compatible fallback).
+    title: Optional[str] = None
     # Optional pre-fetched metadata bundle from AthenaScout's source
     # scan. When present, Hermeece stores the dict on the grab row
     # and skips its own enricher chain in _prepare_book — saves
@@ -120,6 +127,7 @@ async def from_athenascout(body: AthenascoutRequest) -> AthenascoutResponse:
             result = await inject_grab(
                 state.dispatcher,
                 torrent_id=tid,
+                torrent_name=(item.title or "").strip(),
                 author_blob=item.author or "",
                 raw_line=f"athenascout:{item.url_or_id}",
             )
