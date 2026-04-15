@@ -7,6 +7,29 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [1.2.4] — 2026-04-15
+
+### Fixed
+
+- **ibdb enricher picked up stale API field names.** The source
+  was written for a pre-2026 `ibdb.dev` response shape and
+  expected snake_case keys (`isbn_13`, `publication_date`,
+  `pages`) plus a bare URL string for `cover`/`image`/`thumbnail`.
+  Verified live during the AthenaScout v1.1.9 cross-port review:
+  the API now returns camelCase (`isbn13`, `synopsis`,
+  `publicationDate`, `pageCount`) and `image` is a DICT
+  `{id, url, width, height}` — so the old code was shoving a
+  dict into `MetaRecord.cover_url`. AthenaScout's identical bug
+  crashed sqlite3 parameter binding; Hermeece's record path
+  doesn't bind cover_url to SQL directly, but a dict-shaped URL
+  would still have blown up once it reached the downloader or
+  OPF serializer.
+
+  Fix: prefer camelCase keys with snake_case as fallback,
+  extract `image.url` when image is a dict (tolerate either
+  shape with `isinstance()`), and type-guard `description` /
+  `language` against non-string values landing in scalar slots.
+
 ## [1.2.3] — 2026-04-14
 
 ### Fixed

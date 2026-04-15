@@ -111,13 +111,37 @@ def _item_to_record(item: dict) -> MetaRecord:
     title = item.get("title") or item.get("name") or ""
     authors = _extract_authors(item)
 
-    isbn = item.get("isbn_13") or item.get("isbn") or item.get("isbn_10")
-    cover = item.get("cover") or item.get("image") or item.get("thumbnail")
-    description = item.get("description") or item.get("summary")
+    # ibdb.dev's actual response shape (verified live 2026-04-15 during
+    # the AthenaScout v1.1.9 fix): camelCase keys, and `image` is always
+    # a DICT `{id, url, width, height}` — never a bare URL string. The
+    # older snake_case mappings below were written against a pre-2026
+    # shape that no longer matches. Kept as fallbacks in case the API
+    # drifts, but in practice only the camelCase keys hit.
+    #
+    # AthenaScout v1.1.8 crashed sqlite3 binding with "type 'dict' is not
+    # supported" because the old code shoved `image` (a dict) straight
+    # into `cover_url`. Hermeece's record path is mostly downstream of
+    # the DB bind layer (MetaRecord → staging → OPF), but a dict-shaped
+    # cover_url would blow up differently once it reached URL
+    # serialization or the downloader. Fix is the same shape either way:
+    # prefer camelCase first, then type-guard the cover extraction.
+    isbn = item.get("isbn13") or item.get("isbn_13") or item.get("isbn") or item.get("isbn_10")
+    cover_raw = item.get("image") or item.get("cover") or item.get("thumbnail")
+    if isinstance(cover_raw, dict):
+        cover = cover_raw.get("url")
+    elif isinstance(cover_raw, str):
+        cover = cover_raw
+    else:
+        cover = None
+    description = item.get("synopsis") or item.get("description") or item.get("summary")
     publisher = item.get("publisher")
-    pub_date = item.get("publication_date") or item.get("publish_date")
-    pages = item.get("pages") or item.get("page_count")
+    pub_date = item.get("publicationDate") or item.get("publication_date") or item.get("publish_date")
+    pages = item.get("pageCount") or item.get("pages") or item.get("page_count")
     language = item.get("language")
+    if not isinstance(description, str):
+        description = None
+    if not isinstance(language, str):
+        language = None
 
     series_name = item.get("series") or item.get("series_name")
     series_index = None
