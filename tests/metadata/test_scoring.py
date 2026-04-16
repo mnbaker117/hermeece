@@ -20,9 +20,14 @@ class TestTitleSimilarity:
         assert title_similarity("Kings Way", "Way Kings") == 1.0
 
     def test_partial_overlap(self):
-        # "Foundation" vs "Foundation and Empire" → one shared token.
+        # "Foundation" vs "Foundation and Empire" → one title is a
+        # substring of the other. Since a09d063 the scoring weights
+        # containment more heavily, producing ~0.71 (was <0.6 under
+        # the old pure-token-overlap formula). The higher score is
+        # correct behavior: a single-word title matching the first
+        # word of a multi-word title IS a strong signal.
         score = title_similarity("Foundation", "Foundation and Empire")
-        assert 0.3 < score < 0.6
+        assert 0.6 < score < 0.8
 
     def test_disjoint_is_zero(self):
         assert title_similarity("Mistborn", "Dune") == 0.0

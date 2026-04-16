@@ -175,7 +175,7 @@ class MetadataEnricher:
             elapsed = asyncio.get_event_loop().time() - budget_started_at
             remaining = self.config.per_book_budget - elapsed
             if remaining <= 0:
-                _log.warning(
+                _log.info(
                     "enricher: per-book budget (%.0fs) exceeded — skipping "
                     "remaining sources for %r: %s",
                     self.config.per_book_budget, title,

@@ -372,11 +372,12 @@ export default function SettingsPage() {
         <SF label="Download Path" desc="Base download directory as seen inside the download client's container. Subfolders are created under this path based on the folder structure setting." example='e.g. "/data/[mam-complete]"'>
           <input value={(s.qbit_download_path as string) || ""} onChange={e => upd("qbit_download_path", e.target.value)} placeholder="/data/[mam-complete]" style={{ ...ist, width: 260 }} />
         </SF>
-        <SF label="Folder Structure" desc="How downloads are organized. 'Monthly' creates [YYYY-MM] folders; 'Flat' puts everything in the root path.">
+        <SF label="Folder Structure" desc="How downloads are organized inside the download path. 'Author' creates subfolders by author name from the MAM announce.">
           <select value={(s.download_folder_structure as string) || "monthly"} onChange={e => upd("download_folder_structure", e.target.value)}
-            style={{ ...ist, width: 170, cursor: "pointer", appearance: "auto" }}>
+            style={{ ...ist, width: 190, cursor: "pointer", appearance: "auto" }}>
             <option value="monthly">[YYYY-MM] Monthly</option>
             <option value="yearly">[YYYY] Yearly</option>
+            <option value="author">By Author</option>
             <option value="flat">Flat (no subfolders)</option>
           </select>
         </SF>

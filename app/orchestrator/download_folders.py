@@ -1,17 +1,17 @@
 """
-Monthly download folder management.
+Download folder management.
 
-Computes the current month's download subfolder path and ensures it
-exists. The folder naming convention matches the user's existing
-manual organization: `[YYYY-MM]/` inside the qBit download directory.
-
-Examples:
-    [mam-complete]/[2026-04]/
-    [mam-complete]/[2026-05]/
-
-The qBit `save_path` parameter is set to this folder when submitting
-a torrent, so downloads land directly in the organized structure
+Computes the subfolder path based on the user's chosen structure
+(monthly, yearly, author, or flat) and ensures it exists. The qBit
+`save_path` parameter is set to this folder when submitting a
+torrent, so downloads land directly in the organized structure
 without needing a post-download move/copy step.
+
+Supported modes (via settings `download_folder_structure`):
+    "monthly" = [YYYY-MM]/ subfolders           (default)
+    "yearly"  = [YYYY]/ subfolders
+    "author"  = Author Name/ subfolders
+    "flat"    = no subfolder, everything in root
 """
 from __future__ import annotations
 
@@ -46,6 +46,65 @@ def current_month_folder(
     dt = now or datetime.now(timezone.utc)
     folder_name = f"[{dt.strftime('%Y-%m')}]"
     return str(Path(base_path) / folder_name)
+
+
+def _normalize_author_folder(author_name: str) -> str:
+    """Normalize an author name into a filesystem-safe folder name.
+
+    Strips leading/trailing whitespace, replaces filesystem-unsafe
+    characters, and collapses multiple spaces. The goal is to have
+    "William D. Arand" and "William D Arand" land in the same folder.
+    Empty or whitespace-only names get a fallback "_Unknown" so we
+    never pass an empty string to Path().
+    """
+    import re
+    name = (author_name or "").strip()
+    if not name:
+        return "_Unknown"
+    # Remove characters that are illegal or annoying in paths
+    name = re.sub(r'[<>:"/\\|?*]', '', name)
+    # Collapse dots and multiple spaces (William D. Arand → William D Arand)
+    name = name.replace('.', ' ')
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name or "_Unknown"
+
+
+def compute_download_folder(
+    base_path: str,
+    structure: str,
+    *,
+    author_name: str = "",
+    now: Optional[datetime] = None,
+) -> Optional[str]:
+    """Compute the download subfolder path for the given structure mode.
+
+    Args:
+        base_path: qBit base download directory.
+        structure: One of "monthly", "yearly", "author", "flat".
+        author_name: Author blob from the grab row (only used in
+                     "author" mode). Falls back to "_Unknown" if
+                     empty/missing.
+        now: Override for testing. Defaults to UTC now.
+
+    Returns the full subfolder path, or None when no subfolder is
+    needed ("flat") or base_path is empty.
+    """
+    if not base_path:
+        return None
+
+    if structure == "flat":
+        return None  # caller passes None → qBit uses its default save_path
+
+    if structure == "yearly":
+        dt = now or datetime.now(timezone.utc)
+        return str(Path(base_path) / f"[{dt.strftime('%Y')}]")
+
+    if structure == "author":
+        folder = _normalize_author_folder(author_name)
+        return str(Path(base_path) / folder)
+
+    # Default: monthly (also covers unknown/typo values)
+    return current_month_folder(base_path, now=now)
 
 
 def translate_path(

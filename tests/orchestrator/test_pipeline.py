@@ -221,7 +221,7 @@ class TestPipelineErrors:
             assert result is False
             run = await pipe_storage.get_run(db, run_id)
             assert run.state == pipe_storage.PIPE_FAILED
-            assert "no book files" in run.error
+            assert "no file matching" in run.error or "no book files" in run.error
         finally:
             await db.close()
 

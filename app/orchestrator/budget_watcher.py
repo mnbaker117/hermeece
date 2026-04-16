@@ -136,7 +136,7 @@ async def _tick_inner(deps: DispatcherDeps, db) -> TickResult:
     try:
         completions = await check_for_completions(db, dl_snapshot)
         if completions:
-            _log.info(
+            _log.debug(
                 "budget watcher: %d new download completion(s) detected",
                 len(completions),
             )
@@ -259,7 +259,7 @@ async def _resubmit_queued_grab(
             failed_state,
             failed_reason=fetch_result.failure_detail,
         )
-        _log.info(
+        _log.debug(
             f"budget watcher: queued grab_id={grab_id} fetch failed "
             f"({fetch_result.failure_kind}: {fetch_result.failure_detail})"
         )
@@ -277,22 +277,27 @@ async def _resubmit_queued_grab(
         )
         return False
 
-    # Compute the save path (monthly folder if enabled) — same logic
-    # as the dispatcher's submit path. Without this, queued grabs
-    # land in the bare download root instead of the organized monthly
+    # Compute the save path based on the folder structure setting —
+    # same logic as the dispatcher's submit path. Without this, queued
+    # grabs land in the bare download root instead of the organized
     # subfolder, and the pipeline scans the entire root for files.
     save_path = None
-    if deps.qbit_download_path and deps.monthly_download_folders:
+    if deps.qbit_download_path:
         from app.orchestrator.download_folders import (
-            current_month_folder,
+            compute_download_folder,
             ensure_folder_exists,
             translate_path,
         )
-        save_path = current_month_folder(deps.qbit_download_path)
-        local_save_path = translate_path(
-            save_path, deps.qbit_path_prefix, deps.local_path_prefix
+        save_path = compute_download_folder(
+            deps.qbit_download_path,
+            deps.download_folder_structure,
+            author_name=grab.author_blob if grab else "",
         )
-        ensure_folder_exists(local_save_path)
+        if save_path:
+            local_save_path = translate_path(
+                save_path, deps.qbit_path_prefix, deps.local_path_prefix
+            )
+            ensure_folder_exists(local_save_path)
 
     add_result = await deps.qbit.add_torrent(
         torrent_bytes, category=deps.qbit_category,
@@ -313,7 +318,7 @@ async def _resubmit_queued_grab(
             failed_reason=add_result.failure_detail,
             qbit_hash=qbit_hash,
         )
-        _log.info(
+        _log.debug(
             f"budget watcher: queued grab_id={grab_id} qBit submit failed "
             f"({add_result.failure_kind}: {add_result.failure_detail})"
         )
@@ -326,7 +331,7 @@ async def _resubmit_queued_grab(
         qbit_hash=qbit_hash,
     )
     await ledger_mod.record_grab(db, grab_id, qbit_hash)
-    _log.info(
+    _log.debug(
         f"budget watcher: queued grab_id={grab_id} submitted to qBit "
         f"(hash={qbit_hash})"
     )

@@ -340,7 +340,7 @@ async def _prepare_book(
     book_filename = primary_book.name
     book_format = primary_book.suffix.lstrip(".").lower()
 
-    _log.info(
+    _log.debug(
         "pipeline: found %d book file(s) for grab_id=%d, primary=%s",
         len(book_files), event.grab_id, book_filename,
     )
@@ -435,7 +435,7 @@ async def _prepare_book(
                 source="athenascout",
                 confidence=1.0,  # AS scanned the user's library; trust it
             )
-            _log.info(
+            _log.debug(
                 "pipeline: grab_id=%d using AthenaScout-provided metadata (enricher skipped)",
                 event.grab_id,
             )
@@ -514,7 +514,7 @@ async def _prepare_book(
             )
             if patched_ok:
                 delivery_source = temp_book
-                _log.info(
+                _log.debug(
                     "pipeline: patched epub metadata for grab_id=%d",
                     event.grab_id,
                 )
@@ -653,7 +653,7 @@ async def _stage_for_review(
         db, event.grab_id, grabs_storage.STATE_PROCESSING
     )
 
-    _log.info(
+    _log.debug(
         "pipeline: staged for review grab_id=%d %s → %s",
         event.grab_id, event.torrent_name, dest,
     )
@@ -728,7 +728,7 @@ async def _deliver_prepared(
         if author_blob:
             added = await train_authors_from_blob(db, author_blob)
             if added:
-                _log.info(
+                _log.debug(
                     "pipeline: auto-trained %d author(s) from %s",
                     added, event.torrent_name,
                 )

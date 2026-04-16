@@ -7,6 +7,58 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [1.3.0] — 2026-04-15
+
+Closes the v1.2 backlog. One new feature + polish across the board.
+
+### Added
+
+- **By-author download folder structure.** The existing
+  `download_folder_structure` setting (previously only supported
+  "monthly", "yearly", and "flat") now accepts `"author"`. When
+  set, completed downloads land in a normalized author-name
+  subfolder inside the qBit download path (e.g.,
+  `/downloads/[mam-complete]/William D Arand/`). Author name comes
+  from the grab's `author_blob` (the IRC announce). Dots are
+  collapsed to spaces so "William D. Arand" and "William D Arand"
+  share a folder. Empty/missing author names fall back to
+  `_Unknown/`. The setting is exposed as a dropdown in
+  Settings → Download Client (replacing the old description that
+  only mentioned Monthly/Flat). Both the dispatcher submit path
+  and the budget-watcher queue-resubmit path honor the new mode.
+
+### Changed
+
+- **Log levels recalibrated.** 15 adjustments across
+  `budget_watcher.py`, `dispatch.py`, `pipeline.py`, and
+  `enricher.py`. Pattern: per-book operational detail (staging,
+  epub patching, enricher per-source results, queue pop details)
+  demoted from INFO → DEBUG to reduce default-level noise.
+  Folder pre-creation failure promoted from WARNING → ERROR
+  (genuine operational failure). Client-unreachable queueing and
+  enricher budget-exceeded demoted from WARNING → INFO (expected
+  resilience, not exceptional). Policy/user_status lookup
+  fallbacks demoted from WARNING → DEBUG (implementation detail).
+
+### Fixed
+
+- **`test_scoring.py::test_partial_overlap` assertion stale.**
+  The upper bound expected `< 0.6` but the scoring function
+  (changed in `a09d063`) now correctly weights substring
+  containment higher, producing 0.714 for "Foundation" vs
+  "Foundation and Empire". Updated to `0.6 < score < 0.8`.
+
+- **`test_pipeline.py::test_no_book_files_fails` assertion
+  didn't match v1.2.3 error message.** The v1.2.3 file-list
+  feature changed the error wording from "no book files" to
+  "no file matching '...'". Updated to accept either form.
+
+### Removed
+
+- **Orphaned `CredentialsPage.tsx` deleted.** Dead code since
+  v1.1.2 when credential editing moved inline to SettingsPage
+  via `CredField`. Never imported in `App.tsx`.
+
 ## [1.2.4] — 2026-04-15
 
 ### Fixed

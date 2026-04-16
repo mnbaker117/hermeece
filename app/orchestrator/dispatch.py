@@ -50,7 +50,7 @@ from app.mam.user_status import UserStatusError, get_user_status
 from app.orchestrator.auto_train import train_author
 from app.orchestrator.delayed import rotate_oldest_to_delayed
 from app.orchestrator.download_folders import (
-    current_month_folder,
+    compute_download_folder,
     ensure_folder_exists,
     translate_path,
 )
@@ -131,7 +131,8 @@ class DispatcherDeps:
 
     # Download folder organization.
     qbit_download_path: str = ""
-    monthly_download_folders: bool = True
+    monthly_download_folders: bool = True  # legacy; overridden by download_folder_structure
+    download_folder_structure: str = "monthly"  # "monthly" | "yearly" | "author" | "flat"
 
     # Path translation between qBit and Hermeece containers.
     # qBit reports paths like "/data/[mam-complete]" but Hermeece
@@ -496,7 +497,7 @@ async def _dispatch_with_decision(
         # The audit row is already written, so dry-run logs show
         # exactly what WOULD have happened.
         if deps.dry_run:
-            _log.info(
+            _log.debug(
                 "DRY RUN: would %s tid=%s %s (policy=%s)",
                 rate_decision.action,
                 announce.torrent_id,
@@ -615,19 +616,24 @@ async def _dispatch_with_decision(
         # using OUR mount namespace (e.g. /downloads/[mam-complete]/...)
         # before passing the path to qBit.
         save_path = None
-        if deps.qbit_download_path and deps.monthly_download_folders:
-            save_path = current_month_folder(deps.qbit_download_path)
-            # Translate qBit-namespace path → local-namespace path,
-            # then create the folder so it exists when qBit tries to use it.
-            local_save_path = translate_path(
-                save_path, deps.qbit_path_prefix, deps.local_path_prefix
+        if deps.qbit_download_path:
+            save_path = compute_download_folder(
+                deps.qbit_download_path,
+                deps.download_folder_structure,
+                author_name=announce.author_blob,
             )
-            if not ensure_folder_exists(local_save_path):
-                _log.warning(
-                    "failed to pre-create download folder: %s "
-                    "(qBit path: %s) — submission will likely fail",
-                    local_save_path, save_path,
+            if save_path:
+                # Translate qBit-namespace path → local-namespace path,
+                # then create the folder so it exists when qBit tries to use it.
+                local_save_path = translate_path(
+                    save_path, deps.qbit_path_prefix, deps.local_path_prefix
                 )
+                if not ensure_folder_exists(local_save_path):
+                    _log.error(
+                        "failed to pre-create download folder: %s "
+                        "(qBit path: %s) — submission will likely fail",
+                        local_save_path, save_path,
+                    )
 
         add_result = await deps.qbit.add_torrent(
             torrent_bytes,
@@ -653,7 +659,7 @@ async def _dispatch_with_decision(
                 _emit(deps, "queued_on_client_failure", {
                     "grab_id": grab_id, "kind": add_result.failure_kind,
                 })
-                _log.warning(
+                _log.info(
                     "download client unreachable for grab_id=%d — queued for retry (%s)",
                     grab_id, add_result.failure_kind,
                 )
@@ -765,7 +771,7 @@ async def _build_economic_context(
             ctx_kwargs["torrent_fl_vip"] = info.fl_vip
             ctx_kwargs["personal_freeleech"] = info.personal_freeleech
         except TorrentInfoError as e:
-            _log.warning("torrent_info lookup failed for tid=%s: %s",
+            _log.debug("torrent_info lookup failed for tid=%s: %s",
                          announce.torrent_id, e)
 
     # User-status lookup (only if the policy actually needs ratio/wedges).
@@ -782,7 +788,7 @@ async def _build_economic_context(
             ctx_kwargs["user_ratio"] = status.ratio
             ctx_kwargs["user_wedges"] = status.wedges
         except UserStatusError as e:
-            _log.warning("user_status lookup failed: %s", e)
+            _log.debug("user_status lookup failed: %s", e)
 
     return EconomicContext(**ctx_kwargs)
 
