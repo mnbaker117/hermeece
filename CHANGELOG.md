@@ -7,6 +7,89 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [1.3.1] — 2026-04-22
+
+Security-only patch release. No behavior changes. Closes 7
+Dependabot alerts + 4 CodeQL findings, plus 3 CodeQL findings
+dismissed as false-positive / intentional-design.
+
+### Security — Dependency bumps
+
+- **`lxml` `==5.3.0` → `>=6.1.0`** (CVE-2026-41066,
+  GHSA-vfmq-68hx-4jfw). Default `iterparse` / `ETCompatXMLParser`
+  allowed XXE to local files.
+- **`cryptography` `==44.0.0` → `>=46.0.6`**. One bump closes
+  three CVEs:
+  - CVE-2026-26007 (GHSA-r6ph-v2qm-q3c2) — SECT curves missing
+    subgroup validation, subgroup attack.
+  - CVE-2026-34073 (GHSA-m959-cc7f-wv43) — incomplete DNS
+    name-constraint enforcement on peer names.
+  - CVE-2024-12797 (GHSA-79v4-65xg-pq4g) — vulnerable OpenSSL
+    bundled in cryptography wheels.
+- **`pytest` `==8.3.0` → `>=9.0.3`** (dev only, CVE-2025-71176,
+  GHSA-6w46-j5rx-g56g). Tmpdir-handling issue in the test
+  harness.
+- **`vite` `^5.4.11` → `^6.4.2`** (CVE-2026-39365,
+  GHSA-4w7w-66w2-5vf9). Path traversal in optimized-deps `.map`
+  handling. No upstream back-patch to the 5.x line; the 6.4.2
+  upgrade clears both alerts and carries `@vitejs/plugin-react`
+  through unchanged. `npm run build` verified green.
+- **`esbuild` transitive bump to `^0.25.0`** via the vite upgrade
+  (GHSA-67mh-4wv8-2f99). Dev-server could accept cross-origin
+  requests. Dev-only issue but flagged by Dependabot on the
+  production lockfile.
+
+### Security — Code scanning
+
+CodeQL real-issue fixes:
+
+- **`app/routers/covers.py` — path containment.** Switched the
+  allowed-root check from `str.startswith(root.resolve())` to
+  `Path.is_relative_to()`. Closes the prefix-match bug (a path
+  under `/mnt/user/staging_extra` previously passed a check
+  gated on `/mnt/user/staging`) and is a sanitizer CodeQL
+  natively recognizes. Also swapped the existence check to
+  `resolve(strict=True)` so symlink traversal is rejected up
+  front.
+- **`app/routers/delayed.py` — filename validation hoisted.**
+  The `_FILENAME_RX` guard now runs before any `Path(folder /
+  filename)` construction on both the reinject and delete
+  endpoints. Previously an attacker with an auth'd session could
+  reach `fpath.exists()` / `fpath.unlink()` with an unexpected
+  filename before the regex check gated the flow.
+- **`app/routers/migration.py` — cleanup containment.** Empty-
+  folder cleanup now checks `p.resolve(strict=True).parent ==
+  root.resolve()` instead of the unresolved `p.parent`
+  comparison. Blocks symlinks, `..` segments, and non-canonical
+  absolute paths from reaching `shutil.rmtree`.
+- **`app/metadata/writer.py` — atomic temp file.** Replaced the
+  deprecated `tempfile.mktemp` (TOCTOU race) with
+  `tempfile.mkstemp` for the temp epub during the OPF rewrite.
+
+CodeQL dismissals (documented on each alert in the Security
+tab):
+
+- `py/clear-text-logging-sensitive-data @ app/secrets.py:110` —
+  false positive. Logs the secret key NAME (a whitelist slot
+  identifier), not the value.
+- `py/clear-text-logging-sensitive-data @ app/mam/irc.py:433` —
+  false positive. Sits in the else-branch of an explicit
+  `AUTHENTICATE` / `PRIVMSG NICKSERV` redaction filter; the only
+  credential-carrying IRC commands never reach the logged line.
+- `py/clear-text-storage-sensitive-data @ app/auth_secret.py:82`
+  — intentional design. This IS the session-signing-secret
+  persistence path (file chmod 0600), documented in the module
+  docstring; encrypting at rest is infinite-regress for a
+  self-hosted single-tenant app with no HSM/KMS.
+
+### Verified
+
+- `pytest` — 625/625 pass.
+- `npm run build` — green under Vite 6.4.2.
+- `npm audit` — 0 vulnerabilities.
+
+---
+
 ## [1.3.0] — 2026-04-15
 
 Closes the v1.2 backlog. One new feature + polish across the board.

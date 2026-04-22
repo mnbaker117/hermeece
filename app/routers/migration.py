@@ -461,31 +461,40 @@ async def cleanup_empty_folders(body: CleanupRequest):
     deleted = 0
     fail = 0
     errors: list[str] = []
+    root_resolved = Path(local_root).resolve()
 
     for folder_path in body.folders:
         p = Path(folder_path)
-        # Safety: only delete folders that are direct children of the
-        # download root to prevent path traversal.
+        # Safety: only delete folders that (a) resolve to an existing
+        # directory whose canonical parent is exactly the download root,
+        # blocking .. segments, symlinks, and absolute paths outside the
+        # root from reaching rmtree.
         try:
-            if p.parent != Path(local_root):
+            try:
+                p_resolved = p.resolve(strict=True)
+            except (OSError, RuntimeError):
+                errors.append(f"{p.name}: not found or unresolvable")
+                fail += 1
+                continue
+            if p_resolved.parent != root_resolved:
                 errors.append(f"{p.name}: not a direct child of download root")
                 fail += 1
                 continue
-            if not p.is_dir():
-                errors.append(f"{p.name}: not found or not a directory")
+            if not p_resolved.is_dir():
+                errors.append(f"{p.name}: not a directory")
                 fail += 1
                 continue
             # Verify still empty before deleting.
-            has_files = any(f.is_file() for f in p.rglob("*"))
+            has_files = any(f.is_file() for f in p_resolved.rglob("*"))
             if has_files:
                 errors.append(f"{p.name}: no longer empty, skipped")
                 fail += 1
                 continue
             # rmtree to handle nested empty subdirs.
             import shutil
-            shutil.rmtree(str(p))
+            shutil.rmtree(str(p_resolved))
             deleted += 1
-            _log.info("cleaned up empty folder: %s", p)
+            _log.info("cleaned up empty folder: %s", p_resolved)
         except Exception as e:
             errors.append(f"{p.name}: {e}")
             fail += 1

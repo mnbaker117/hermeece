@@ -33,25 +33,28 @@ async def serve_cover(cover_path: str):
     We validate it resolves to a real file under known directories.
     """
     settings = load_settings()
-    allowed_roots = set()
+    allowed_roots: list[Path] = []
     for key in ("staging_path", "review_staging_path"):
         val = settings.get(key, "")
         if val:
-            allowed_roots.add(Path(val).resolve())
+            allowed_roots.append(Path(val).resolve())
 
     # Also allow /tmp for tentative covers stored in temp staging
-    allowed_roots.add(Path("/tmp").resolve())
+    allowed_roots.append(Path("/tmp").resolve())
 
-    target = Path(cover_path).resolve()
-
-    # Security: target must be under one of the allowed roots
-    if not any(
-        str(target).startswith(str(root)) for root in allowed_roots
-    ):
-        raise HTTPException(403, "Cover path not in allowed directory")
-
-    if not target.exists() or not target.is_file():
+    try:
+        target = Path(cover_path).resolve(strict=True)
+    except (OSError, RuntimeError):
         raise HTTPException(404, "Cover not found")
+
+    if not target.is_file():
+        raise HTTPException(404, "Cover not found")
+
+    # Security: target must be contained within one of the allowed roots.
+    # is_relative_to avoids the startswith-prefix bug (/allowed_extra
+    # starts with /allowed but isn't under it).
+    if not any(target.is_relative_to(root) for root in allowed_roots):
+        raise HTTPException(403, "Cover path not in allowed directory")
 
     # Guess content type from suffix
     suffix = target.suffix.lower()

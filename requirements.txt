@@ -26,10 +26,10 @@ mutagen==1.47.0
 
 # Metadata scraper HTML parsing (Goodreads, Amazon, etc.)
 beautifulsoup4==4.12.3
-lxml==5.3.0
+lxml>=6.1.0
 
 # Cloudflare bypass for Amazon + Kobo scraping
 cloudscraper==1.2.71
 
 # Fernet symmetric encryption for the secret store
-cryptography==44.0.0
+cryptography>=46.0.6

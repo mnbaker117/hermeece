@@ -122,8 +122,13 @@ def _patch_opf(
     # Write the modified OPF back into the epub.
     new_opf = ET.tostring(root, encoding="unicode", xml_declaration=True)
 
-    # Rebuild the zip with the modified OPF.
-    tmp = Path(tempfile.mktemp(suffix=".epub", dir=epub_path.parent))
+    # Rebuild the zip with the modified OPF. mkstemp creates the file
+    # atomically with a unique name so we dodge the TOCTOU race that
+    # tempfile.mktemp warns about.
+    import os
+    fd, tmp_str = tempfile.mkstemp(suffix=".epub", dir=str(epub_path.parent))
+    os.close(fd)
+    tmp = Path(tmp_str)
     try:
         with zipfile.ZipFile(str(epub_path), "r") as zf_in, \
              zipfile.ZipFile(str(tmp), "w") as zf_out:
