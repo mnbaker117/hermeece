@@ -101,15 +101,18 @@ async def reinject(filename: str) -> ReinjectResponse:
     if state.dispatcher is None:
         raise HTTPException(503, "dispatcher not initialized")
 
+    # Reject anything that isn't the expected <grab_id>_<mam_id>.torrent
+    # shape before touching the filesystem. Pattern is fully anchored,
+    # so no traversal chars (/, \, ..) can slip through.
+    m = _FILENAME_RX.match(filename)
+    if not m:
+        raise HTTPException(400, f"filename {filename} doesn't match expected pattern")
+
     folder = _get_delayed_path()
     fpath = folder / filename
 
     if not fpath.exists():
         raise HTTPException(404, f"{filename} not found in delayed folder")
-
-    m = _FILENAME_RX.match(filename)
-    if not m:
-        raise HTTPException(400, f"filename {filename} doesn't match expected pattern")
 
     mam_id = m.group(2)
     result = await inject_grab(
@@ -134,6 +137,8 @@ async def reinject(filename: str) -> ReinjectResponse:
 
 @router.delete("/{filename}", response_model=SimpleOk)
 async def delete_delayed(filename: str) -> SimpleOk:
+    if not _FILENAME_RX.match(filename):
+        raise HTTPException(400, f"filename {filename} doesn't match expected pattern")
     folder = _get_delayed_path()
     fpath = folder / filename
     if not fpath.exists():
